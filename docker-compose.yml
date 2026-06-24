@@ -11,6 +11,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-contact_verification}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./backend/docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
     ports:
       - "5432:5432"
     healthcheck:

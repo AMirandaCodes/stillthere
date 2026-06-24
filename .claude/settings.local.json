@@ -3,7 +3,8 @@
     "allow": [
       "Bash(grep -rni \"title\\\\|CVP\\\\|contact.verif\\\\|stillthere\" frontend/index.html frontend/public/)",
       "Bash(cat frontend/index.html)",
-      "Bash(ls .env* backend/.env*)"
+      "Bash(ls .env* backend/.env*)",
+      "Bash(dir \"c:\\\\Users\\\\AMiranda\\\\OneDrive - Philton Polythene Converters Ltd\\\\Desktop\\\\contact-verification-platform\" /s /b)"
     ]
   }
 }

@@ -2,22 +2,25 @@
 Shared pytest fixtures.
 
 Fixture hierarchy:
-  test_engine (session-scoped) → creates all tables once per test run
-  db_session  (function-scoped) → wraps each test in a rolled-back transaction
-  client      (function-scoped) → httpx AsyncClient wired to the test DB
-  auth_headers (function-scoped) → registers a user and returns Bearer headers
+  test_engine  (session-scoped) → creates all tables once per test run
+  db_session   (function-scoped) → wraps each test in a rolled-back connection-level transaction
+  client       (function-scoped) → httpx AsyncClient wired to the test DB
+  auth_headers (function-scoped) → registers a test user, returns Bearer headers
 """
-import pytest
+import os
+
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+import app.db.registry  # noqa: F401 — registers all ORM models before engine creates tables
 from app.api.deps import get_db
 from app.db.base import Base
 from app.main import app
 
-TEST_DATABASE_URL = (
-    "postgresql+asyncpg://cvp_user:cvp_password@localhost:5432/contact_verification_test"
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql+asyncpg://cvp_user:cvp_password@localhost:5432/contact_verification_test",
 )
 
 _TEST_USER = {
@@ -41,11 +44,21 @@ async def test_engine():
 
 @pytest_asyncio.fixture
 async def db_session(test_engine) -> AsyncSession:
-    """Each test gets a session that is rolled back on teardown — DB stays clean."""
-    SessionLocal = async_sessionmaker(test_engine, expire_on_commit=False)
-    async with SessionLocal() as session:
-        yield session
-        await session.rollback()
+    """Each test runs inside a connection-level transaction rolled back on teardown.
+
+    session.commit() calls create savepoints rather than committing the outer
+    transaction, so writes are visible within the test but never persisted.
+    """
+    async with test_engine.connect() as connection:
+        await connection.begin()
+        SessionFactory = async_sessionmaker(
+            connection,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        )
+        async with SessionFactory() as session:
+            yield session
+        await connection.rollback()
 
 
 @pytest_asyncio.fixture
@@ -68,7 +81,6 @@ async def client(db_session: AsyncSession) -> AsyncClient:
 @pytest_asyncio.fixture
 async def auth_headers(client: AsyncClient) -> dict[str, str]:
     """Register a test user and return Bearer auth headers."""
-    # Register (idempotent — 409 on repeat runs is fine)
     await client.post("/api/v1/auth/register", json=_TEST_USER)
 
     response = await client.post(

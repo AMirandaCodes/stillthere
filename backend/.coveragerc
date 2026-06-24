@@ -1,0 +1,13 @@
+[run]
+source = app
+omit =
+    app/db/registry.py
+    alembic/*
+
+[report]
+show_missing = true
+precision = 2
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    raise NotImplementedError

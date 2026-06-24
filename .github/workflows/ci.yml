@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  # ── Backend: unit tests (no DB) ──────────────────────────────────────────────
+  backend-unit:
+    name: Backend — Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests with coverage
+        run: pytest tests/unit/ --cov=app --cov-report=xml --cov-report=term-missing
+        env:
+          SECRET_KEY: "ci-test-secret-key-32-chars-minimum-length"
+          ANTHROPIC_API_KEY: "sk-ant-test"
+          SERPER_API_KEY: "test-key"
+          DATABASE_URL: "postgresql+asyncpg://cvp_user:cvp_password@localhost:5432/contact_verification"
+          REDIS_URL: "redis://localhost:6379/0"
+          CELERY_BROKER_URL: "redis://localhost:6379/0"
+          CELERY_RESULT_BACKEND: "redis://localhost:6379/1"
+          CORS_ORIGINS: '["http://localhost:5173"]'
+          DEBUG: "false"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-backend-unit
+          path: backend/coverage.xml
+          retention-days: 7
+
+  # ── Backend: integration tests (needs PostgreSQL) ────────────────────────────
+  backend-integration:
+    name: Backend — Integration Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: cvp_user
+          POSTGRES_PASSWORD: cvp_password
+          POSTGRES_DB: contact_verification
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cvp_user -d contact_verification"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create test database
+        run: |
+          PGPASSWORD=cvp_password psql \
+            -h localhost -U cvp_user -d contact_verification \
+            -c "CREATE DATABASE contact_verification_test;"
+
+      - name: Run integration tests
+        run: pytest tests/integration/
+        env:
+          SECRET_KEY: "ci-test-secret-key-32-chars-minimum-length"
+          ANTHROPIC_API_KEY: "sk-ant-test"
+          SERPER_API_KEY: "test-key"
+          DATABASE_URL: "postgresql+asyncpg://cvp_user:cvp_password@localhost:5432/contact_verification"
+          REDIS_URL: "redis://localhost:6379/0"
+          CELERY_BROKER_URL: "redis://localhost:6379/0"
+          CELERY_RESULT_BACKEND: "redis://localhost:6379/1"
+          CORS_ORIGINS: '["http://localhost:5173"]'
+          DEBUG: "false"
+          TEST_DATABASE_URL: "postgresql+asyncpg://cvp_user:cvp_password@localhost:5432/contact_verification_test"
+
+  # ── Frontend: lint, type-check, and unit tests ───────────────────────────────
+  frontend:
+    name: Frontend — Lint, Type-check & Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Run tests with coverage
+        run: npm run test:ci
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-frontend
+          path: frontend/coverage/
+          retention-days: 7
