@@ -1,0 +1,18 @@
+# docker-compose.dev.yml
+# Extends docker-compose.yml with development-only overrides.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+version: "3.9"
+
+services:
+  backend:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    environment:
+      DEBUG: "true"
+      APP_ENV: development
+
+  worker:
+    command: celery -A app.tasks.celery_app worker --loglevel=debug --concurrency=2
+
+  frontend:
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
