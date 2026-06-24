@@ -24,7 +24,7 @@ export default function Layout() {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
           <Link to="/" className="flex items-center gap-2 text-brand-600 hover:text-brand-700">
             <ShieldCheck className="h-6 w-6" />
-            <span className="text-lg font-semibold tracking-tight">CVP</span>
+            <span className="text-lg font-semibold tracking-tight">StillThere</span>
           </Link>
 
           <nav className="flex items-center gap-1">

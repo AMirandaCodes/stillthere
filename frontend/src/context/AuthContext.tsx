@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function logout() {
-    const refreshToken = localStorage.getItem("cvp_refresh_token") ?? "";
+    const refreshToken = localStorage.getItem("stillthere_refresh_token") ?? "";
     await authService.logout(refreshToken);
     setUser(null);
   }

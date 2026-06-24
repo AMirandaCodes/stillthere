@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
-    logger.info("Starting Contact Verification Platform", version=settings.APP_VERSION)
+    logger.info("Starting StillThere", version=settings.APP_VERSION)
 
     # Initialise Redis connection pool (used by CacheService and Celery)
     try:

@@ -1,4 +1,4 @@
-# Contact Verification Platform
+# StillThere
 
 A full-stack web application that verifies whether a business contact is likely still employed at a company by collecting and analysing publicly available information from the web.
 
@@ -118,7 +118,7 @@ Verification Pipeline (runs inside Celery worker):
 ## Project Structure
 
 ```
-contact-verification-platform/
+stillthere/
 ├── backend/
 │   ├── app/
 │   │   ├── api/v1/routes/      # HTTP route handlers (thin — no business logic)
@@ -155,8 +155,8 @@ contact-verification-platform/
 
 ```bash
 # 1. Clone
-git clone https://github.com/your-username/contact-verification-platform.git
-cd contact-verification-platform
+git clone https://github.com/your-username/stillthere.git
+cd stillthere
 
 # 2. Configure environment
 cp .env.example .env

@@ -164,7 +164,7 @@ class SearchService:
     def query_cache_key(query_text: str) -> str:
         """Deterministic Redis key for a raw query string."""
         digest = hashlib.sha256(query_text.encode()).hexdigest()[:32]
-        return f"cvp:search:{digest}:results"
+        return f"stillthere:search:{digest}:results"
 
     @retry(
         retry=retry_if_exception(_is_retriable),

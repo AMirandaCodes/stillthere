@@ -5,10 +5,10 @@ All public methods are safe to call when Redis is unavailable: they log a warnin
 and return None / do nothing rather than raising.  This means the verification
 pipeline always runs; it just skips the cache on Redis failure.
 
-Cache key conventions (prefix: 'cvp:'):
-  cvp:company:{normalized_name}:profile   — domain, website            (TTL 24 h)
-  cvp:company:{normalized_name}:active    — tri-state active status    (TTL  1 h)
-  cvp:search:{query_hash}:results         — raw Serper results         (TTL 30 min)
+Cache key conventions (prefix: 'stillthere:'):
+  stillthere:company:{normalized_name}:profile   — domain, website            (TTL 24 h)
+  stillthere:company:{normalized_name}:active    — tri-state active status    (TTL  1 h)
+  stillthere:search:{query_hash}:results         — raw Serper results         (TTL 30 min)
 """
 import json
 from typing import Any
@@ -29,9 +29,9 @@ class CacheService:
 
     TTL_SEARCH_RESULTS = 1_800           # 30 minutes — search results are reusable short-term
 
-    _KEY_COMPANY_PROFILE = "cvp:company:{}:profile"
-    _KEY_COMPANY_ACTIVE = "cvp:company:{}:active"
-    _KEY_SEARCH_RESULTS = "cvp:search:{}:results"
+    _KEY_COMPANY_PROFILE = "stillthere:company:{}:profile"
+    _KEY_COMPANY_ACTIVE = "stillthere:company:{}:active"
+    _KEY_SEARCH_RESULTS = "stillthere:search:{}:results"
 
     def __init__(self, redis: "Redis | None") -> None:
         self._redis = redis

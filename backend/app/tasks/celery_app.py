@@ -5,7 +5,7 @@ import app.db.registry  # noqa: F401 — registers all SQLAlchemy models before 
 settings = get_settings()
 
 celery_app = Celery(
-    "cvp",
+    "stillthere",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
     include=["app.tasks.verification_tasks", "app.tasks.batch_tasks"],

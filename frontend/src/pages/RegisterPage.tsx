@@ -39,7 +39,7 @@ export default function RegisterPage() {
         <div className="mb-8 flex flex-col items-center gap-2">
           <ShieldCheck className="h-10 w-10 text-brand-600" />
           <h1 className="text-2xl font-bold text-gray-900">Create an account</h1>
-          <p className="text-sm text-gray-500">Get started with CVP</p>
+          <p className="text-sm text-gray-500">Get started with StillThere</p>
         </div>
 
         <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">

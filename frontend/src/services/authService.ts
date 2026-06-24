@@ -1,8 +1,8 @@
 import api from "./api";
 import type { LoginRequest, RegisterRequest, TokenResponse, UserResponse } from "@/types/auth";
 
-const ACCESS_KEY = "cvp_access_token";
-const REFRESH_KEY = "cvp_refresh_token";
+const ACCESS_KEY = "stillthere_access_token";
+const REFRESH_KEY = "stillthere_refresh_token";
 
 export const authService = {
   getToken(): string | null {

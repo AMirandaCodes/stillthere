@@ -160,5 +160,5 @@ class TestCacheKey:
 
     def test_key_has_correct_prefix_and_suffix(self):
         key = SearchService.query_cache_key("test query")
-        assert key.startswith("cvp:search:")
+        assert key.startswith("stillthere:search:")
         assert key.endswith(":results")

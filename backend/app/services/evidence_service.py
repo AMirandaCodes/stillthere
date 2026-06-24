@@ -101,7 +101,7 @@ class EvidenceService:
         response = await self._client.get(
             url,
             timeout=10.0,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; CVP-Bot/1.0; +https://github.com)"},
+            headers={"User-Agent": "Mozilla/5.0 (compatible; StillThere-Bot/1.0; +https://github.com)"},
             follow_redirects=True,
         )
         response.raise_for_status()

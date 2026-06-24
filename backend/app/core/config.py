@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     )
 
     # --- Application -------------------------------------------------------
-    APP_NAME: str = "Contact Verification Platform"
+    APP_NAME: str = "StillThere"
     APP_VERSION: str = "0.1.0"
     APP_ENV: str = "development"
     DEBUG: bool = False
