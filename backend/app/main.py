@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
@@ -26,8 +27,11 @@ async def lifespan(app: FastAPI):
     logger.info("Starting StillThere", version=settings.APP_VERSION)
 
     try:
-        alembic_cfg = AlembicConfig("alembic.ini")
-        alembic_command.upgrade(alembic_cfg, "head")
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: alembic_command.upgrade(AlembicConfig("alembic.ini"), "head"),
+        )
         logger.info("Database migrations applied")
     except Exception as exc:
         logger.error("Migration failed — aborting startup", error=str(exc))
