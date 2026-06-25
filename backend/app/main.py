@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
+from alembic import command as alembic_command
+from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -22,6 +24,14 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     configure_logging()
     logger.info("Starting StillThere", version=settings.APP_VERSION)
+
+    try:
+        alembic_cfg = AlembicConfig("alembic.ini")
+        alembic_command.upgrade(alembic_cfg, "head")
+        logger.info("Database migrations applied")
+    except Exception as exc:
+        logger.error("Migration failed — aborting startup", error=str(exc))
+        raise
 
     # Initialise Redis connection pool (used by CacheService and Celery)
     try:
