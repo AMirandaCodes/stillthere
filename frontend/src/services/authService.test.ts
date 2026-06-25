@@ -12,6 +12,7 @@ const tokens = {
   access_token: "test-access-token",
   refresh_token: "test-refresh-token",
   token_type: "bearer" as const,
+  expires_in: 1800,
 };
 
 describe("authService — token storage", () => {
