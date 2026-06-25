@@ -1,6 +1,10 @@
+import json
 from functools import lru_cache
-from pydantic import field_validator
+
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_PLACEHOLDER_KEYS = {"change-me-in-production", "change-me-in-production-use-a-long-random-string"}
 
 
 class Settings(BaseSettings):
@@ -56,12 +60,42 @@ class Settings(BaseSettings):
     DEFAULT_PAGE_SIZE: int = 20
     MAX_PAGE_SIZE: int = 100
 
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def fix_database_url(cls, v: str) -> str:
+        if isinstance(v, str) and v.startswith("postgres://"):
+            return v.replace("postgres://", "postgresql+asyncpg://", 1)
+        return v
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, v: str | list) -> list[str]:
+        if isinstance(v, list):
+            return v
         if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",")]
+            v = v.strip()
+            if v.startswith("["):
+                try:
+                    return json.loads(v)
+                except json.JSONDecodeError:
+                    pass
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
+
+    @model_validator(mode="after")
+    def validate_production_settings(self) -> "Settings":
+        if self.APP_ENV != "production":
+            return self
+        if self.SECRET_KEY in _PLACEHOLDER_KEYS or len(self.SECRET_KEY) < 32:
+            raise ValueError(
+                "SECRET_KEY must be at least 32 characters and cannot be a placeholder value. "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        if not self.ANTHROPIC_API_KEY:
+            raise ValueError("ANTHROPIC_API_KEY must be set in production (APP_ENV=production)")
+        if not self.SERPER_API_KEY:
+            raise ValueError("SERPER_API_KEY must be set in production (APP_ENV=production)")
+        return self
 
     @property
     def is_production(self) -> bool:
