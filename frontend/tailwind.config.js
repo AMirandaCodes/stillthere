@@ -5,7 +5,7 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        serif: ["Georgia", "Times New Roman", "Times", "serif"],
+        serif: ["Georgia", "serif"],
       },
       colors: {
         brand: {
