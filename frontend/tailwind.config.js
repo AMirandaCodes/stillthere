@@ -4,6 +4,9 @@ export default {
   safelist: ["animate-spin"],
   theme: {
     extend: {
+      fontFamily: {
+        serif: ["Georgia", "Times New Roman", "Times", "serif"],
+      },
       colors: {
         brand: {
           50:  "#eff6ff",
