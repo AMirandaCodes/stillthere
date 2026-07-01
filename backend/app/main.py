@@ -33,9 +33,13 @@ async def lifespan(app: FastAPI):
             lambda: alembic_command.upgrade(AlembicConfig("alembic.ini"), "head"),
         )
         logger.info("Database migrations applied")
-    except Exception as exc:
-        logger.error("Migration failed — aborting startup", error=str(exc))
-        raise
+    except BaseException as exc:
+        logger.error(
+            "Migration failed — aborting startup",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        raise SystemExit(1) from exc
 
     # Initialise Redis connection pool (used by CacheService and Celery)
     try:
