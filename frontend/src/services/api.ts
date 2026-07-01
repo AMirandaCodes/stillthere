@@ -23,9 +23,11 @@ api.interceptors.response.use(
         window.location.href = "/login";
       }
     }
-    const message =
-      error.response?.data?.detail ?? error.message ?? "An unexpected error occurred";
-    return Promise.reject(new Error(message));
+    const detail = error.response?.data?.detail;
+    const message = Array.isArray(detail)
+      ? detail.map((e: { msg?: string }) => e.msg ?? String(e)).join("; ")
+      : (detail ?? error.message ?? "An unexpected error occurred");
+    return Promise.reject(new Error(String(message)));
   }
 );
 

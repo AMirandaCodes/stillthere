@@ -32,6 +32,7 @@ export default function VerificationResultPage() {
     queryKey: ["verification", id],
     queryFn: () => verificationService.getVerification(id!),
     refetchInterval: (query) => {
+      if (query.state.error) return false;
       const status = query.state.data?.status;
       return status === "complete" || status === "failed" ? false : 2000;
     },
@@ -158,26 +159,31 @@ export default function VerificationResultPage() {
           )}
 
           {/* Useful links */}
-          {Object.keys(data.useful_links).length > 0 && (
-            <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-              <h2 className="mb-4 font-semibold text-gray-800">Useful Links</h2>
-              <ul className="space-y-2">
-                {Object.entries(data.useful_links).map(([label, url]) => (
-                  <li key={label}>
-                    <a
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-sm text-brand-600 hover:underline"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      {label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {(() => {
+            const validLinks = Object.entries(data.useful_links).filter(
+              ([, url]) => typeof url === "string" && /^https?:\/\//i.test(url)
+            );
+            return validLinks.length > 0 ? (
+              <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+                <h2 className="mb-4 font-semibold text-gray-800">Useful Links</h2>
+                <ul className="space-y-2">
+                  {validLinks.map(([label, url]) => (
+                    <li key={label}>
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-sm text-brand-600 hover:underline"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        {label}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null;
+          })()}
         </>
       )}
     </div>

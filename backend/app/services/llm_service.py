@@ -68,6 +68,13 @@ class LLMAnalysisResult(BaseModel):
     reasoning: str = ""
     raw_response: str = ""
 
+    @field_validator("useful_links", mode="before")
+    @classmethod
+    def filter_invalid_urls(cls, v: Any) -> dict[str, str]:
+        if not isinstance(v, dict):
+            return {}
+        return {k: url for k, url in v.items() if isinstance(url, str) and url.startswith(("http://", "https://"))}
+
     @field_validator(
         "person_found", "appears_associated", "found_on_website",
         "company_active", "email_match",
