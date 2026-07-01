@@ -27,10 +27,10 @@ services:
     plan: free
     healthCheckPath: /api/v1/health
     envVars:
-      # Paste the Internal Database URL from the Render PostgreSQL dashboard.
-      # postgres:// is automatically normalised to postgresql+asyncpg:// by config.py.
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: stillthere-db
+          property: connectionString
       - key: REDIS_URL
         sync: false
       - key: CELERY_BROKER_URL
@@ -63,14 +63,15 @@ services:
     plan: free
     envVars:
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: stillthere-db
+          property: connectionString
       - key: REDIS_URL
         sync: false
       - key: CELERY_BROKER_URL
         sync: false
       - key: CELERY_RESULT_BACKEND
         sync: false
-      # Must match the backend SECRET_KEY exactly. Copy it after the backend is deployed.
       - key: SECRET_KEY
         sync: false
       - key: ANTHROPIC_API_KEY
