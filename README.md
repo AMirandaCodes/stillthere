@@ -9,6 +9,8 @@
 
 > Automatically verifies whether a business contact is still employed at a company — backed by cited web evidence, never by inference.
 
+**Live:** [https://stillthere-frontend.onrender.com](https://stillthere-frontend.onrender.com)
+
 ---
 
 ## Table of Contents
@@ -156,8 +158,6 @@ The total maps to a confidence level: **High** (≥70), **Medium** (40–69), **
 ---
 
 ## Screenshots
-
-> *The application is running in development mode. Production deployment (Phase 7) is not yet complete.*
 
 **Login**
 > *[Screenshot — Centred card with "StillThere" heading, email and password fields, a "Sign in" button, and a "Create account" link below. Clean light background.]*
@@ -391,6 +391,28 @@ npm run test:ci   # Single pass with coverage (used by CI)
 
 ---
 
+## Deployment (Render)
+
+The application is deployed on Render's free tier:
+
+| Service | Type | URL |
+|---|---|---|
+| `stillthere-frontend` | Static Site | https://stillthere-frontend.onrender.com |
+| `stillthere-backend` | Web Service (Python) | https://stillthere-backend.onrender.com |
+| `stillthere-db` | Managed PostgreSQL | — (internal) |
+| Upstash Redis | External Redis | — (internal) |
+
+**Key deployment details:**
+
+- Alembic migrations run in the Start Command (`alembic upgrade head && uvicorn ...`) — not inside the FastAPI lifespan.
+- Celery runs in the same Web Service dyno as uvicorn, started as a background process with `&` in the Start Command.
+- `DATABASE_URL` is set manually in the Render dashboard using the **External** database URL (the internal hostname is not resolvable on free tier). It is declared `sync: false` in `render.yaml` so Blueprint Syncs never overwrite it.
+- Upstash Redis (free tier) supports only database 0. Both `REDIS_URL` and `CELERY_RESULT_BACKEND` must end in `/0`.
+- `rediss://` URLs require explicit SSL configuration in `celery_app.py` (`broker_use_ssl` / `redis_backend_use_ssl`) — Kombu does not parse `?ssl_cert_reqs=CERT_NONE` from the URL string.
+- `CORS_ORIGINS` must be a JSON array string: `["https://stillthere-frontend.onrender.com"]`.
+
+---
+
 ## Development Phases
 
 | Phase | Status | Description |
@@ -401,7 +423,7 @@ npm run test:ci   # Single pass with coverage (used by CI)
 | 4 | ✅ Complete | Verification pipeline + evidence collection |
 | 5 | ✅ Complete | Batch CSV processing |
 | 6 | ✅ Complete | Frontend implementation |
-| 7 | 🔲 Pending | Production Docker configuration + deployment |
+| 7 | ✅ Complete | Production deployment (Render) |
 | 8 | ✅ Complete | Testing suite + GitHub Actions CI |
 | 9 | ✅ Complete | Documentation |
 

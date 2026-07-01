@@ -18,6 +18,9 @@ htmlcov/
 
 # Environment
 .env
+.env.prod
+.env.staging
+.env.dev
 .env.local
 .env.*.local
 
@@ -51,6 +54,10 @@ logs/
 # Uploads
 uploads/
 temp/
+
+# Test data
+test_batch.csv
+test_*.csv
 
 # Alembic
 alembic/versions/*.pyc

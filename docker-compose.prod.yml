@@ -1,19 +1,28 @@
 version: "3.9"
 
+# Production Docker Compose
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
+#
+# Prerequisites:
+#   - .env.prod populated from .env.prod.example (never committed to git)
+#   - SSL terminated by the host nginx or a cloud load balancer (see deployment docs)
+
 services:
   # ── PostgreSQL ──────────────────────────────────────────────────────────────
   db:
     image: postgres:15-alpine
     restart: unless-stopped
+    env_file: .env.prod
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-cvp_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cvp_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-contact_verification}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
-    ports:
-      - "5432:5432"
+    # Not exposed to the host — only the Docker network can reach it
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cvp_user} -d ${POSTGRES_DB:-contact_verification}"]
       interval: 10s
@@ -26,8 +35,7 @@ services:
     restart: unless-stopped
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
+    # Not exposed to the host — only the Docker network can reach it
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -40,22 +48,26 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    env_file: .env
+    env_file: .env.prod
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cvp_user}:${POSTGRES_PASSWORD:-cvp_password}@db:5432/${POSTGRES_DB:-contact_verification}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cvp_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-contact_verification}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
-    ports:
-      - "8000:8000"
+      APP_ENV: production
+      DEBUG: "false"
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # No port exposure — nginx proxies /api/* to this service via the Docker network
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --workers 2
+      --log-level warning
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')\" 2>/dev/null || exit 1"]
       interval: 30s
@@ -69,26 +81,30 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    env_file: .env
+    env_file: .env.prod
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cvp_user}:${POSTGRES_PASSWORD:-cvp_password}@db:5432/${POSTGRES_DB:-contact_verification}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cvp_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-contact_verification}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+      APP_ENV: production
+      DEBUG: "false"
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./backend:/app
-    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4 -Q celery,batch
+    command: >
+      celery -A app.tasks.celery_app worker
+      --loglevel=warning
+      --concurrency=4
+      -Q celery,batch
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.tasks.celery_app inspect ping -t 5 2>/dev/null || exit 1"]
       interval: 60s
       timeout: 15s
       retries: 3
-      start_period: 90s
+      start_period: 120s
 
   # ── Celery Flower (Task Monitor) ─────────────────────────────────────────────
   flower:
@@ -96,16 +112,21 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    env_file: .env
+    env_file: .env.prod
     environment:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
-    ports:
-      - "5555:5555"
     depends_on:
       - redis
       - worker
-    command: celery -A app.tasks.celery_app flower --port=5555
+    # Bound to localhost only. Access via SSH tunnel:
+    #   ssh -L 5555:127.0.0.1:5555 user@your-server
+    ports:
+      - "127.0.0.1:5555:5555"
+    command: >
+      celery -A app.tasks.celery_app flower
+      --port=5555
+      --basic_auth=${FLOWER_USER:-admin}:${FLOWER_PASSWORD}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5555/healthcheck')\" 2>/dev/null || exit 1"]
       interval: 30s
@@ -113,29 +134,24 @@ services:
       retries: 3
       start_period: 30s
 
-  # ── React Frontend ──────────────────────────────────────────────────────────
+  # ── React Frontend (nginx, production build) ────────────────────────────────
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      target: dev
+      target: production
     restart: unless-stopped
     ports:
-      - "5173:5173"
+      - "80:80"
     depends_on:
-      - backend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    environment:
-      NODE_ENV: development
-      VITE_API_BASE_URL: http://backend:8000
+      backend:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 5173 2>/dev/null || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/ 2>/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 20s
 
 volumes:
   postgres_data:

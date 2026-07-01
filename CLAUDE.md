@@ -153,3 +153,35 @@ SECRET_KEY=<generate: python -c "import secrets; print(secrets.token_hex(32))">
 In development the Vite server proxies `/api/*` to the backend. The proxy target comes from `VITE_API_BASE_URL` (set to `http://backend:8000` in `docker-compose.yml` frontend service environment). `axios` in the browser always uses `baseURL: "/api"` — never a direct backend URL. Do not set `VITE_API_BASE_URL` to anything the browser can reach directly; it is only read server-side by `vite.config.ts`.
 
 localStorage keys for auth tokens are `stillthere_access_token` and `stillthere_refresh_token`.
+
+---
+
+## Production deployment (Render)
+
+The app is live at **https://stillthere-frontend.onrender.com** using Render's free tier: one Web Service (`stillthere-backend`), one Static Site (`stillthere-frontend`), one managed PostgreSQL (`stillthere-db`), and Upstash Redis (external).
+
+### Non-obvious Render constraints
+
+**DATABASE_URL must be set manually and must use the External URL.**
+The internal hostname (e.g. `dpg-XXXXXXXX-a`) is not resolvable on Render's free tier. Always use the External URL from the `stillthere-db` Connect tab (`dpg-XXXXXXXX-a.oregon-postgres.render.com`). The `render.yaml` declares this `sync: false` so Blueprint Syncs never overwrite it.
+
+**Alembic runs in the Start Command, not in the FastAPI lifespan.**
+Running Alembic inside `asynccontextmanager` causes silent failures (the exception is swallowed before logs flush). The Start Command is:
+```
+sh -c "celery -A app.tasks.celery_app worker --loglevel=warning --concurrency=1 -Q celery,batch & alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --log-level warning"
+```
+Celery starts in the background (`&`), then alembic runs, then uvicorn starts.
+
+**Upstash Redis free tier only supports database 0.**
+`REDIS_URL`, `CELERY_BROKER_URL`, and `CELERY_RESULT_BACKEND` must all end in `/0`. Using `/1` for the result backend raises `"Only 0th database is supported! Selected DB: 1"` at task dispatch time.
+
+**`rediss://` URLs need explicit SSL config in `celery_app.py`.**
+Kombu does not parse `?ssl_cert_reqs=CERT_NONE` from the URL string (unlike redis-py). `celery_app.py` detects `rediss://` and sets `broker_use_ssl` and `redis_backend_use_ssl` explicitly:
+```python
+_ssl_opts = {"ssl_cert_reqs": ssl.CERT_NONE}
+if settings.CELERY_BROKER_URL.startswith("rediss://"):
+    celery_app.conf.update(broker_use_ssl=_ssl_opts, redis_backend_use_ssl=_ssl_opts)
+```
+
+**LLM may return non-URL strings in `useful_links`.**
+`LLMAnalysisResult` has a `field_validator` on `useful_links` that strips any value not starting with `http://` or `https://` before the result is stored. The frontend also filters before rendering.
