@@ -1,9 +1,6 @@
-import asyncio
 from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
-from alembic import command as alembic_command
-from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -14,7 +11,6 @@ from app.api.v1.routes import auth, batch, companies, contacts, health, verifica
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.core.rate_limiting import limiter
-from app.db.registry import Base
 from app.db.session import engine
 
 settings = get_settings()
@@ -26,21 +22,6 @@ async def lifespan(app: FastAPI):
     configure_logging()
     logger.info("Starting StillThere", version=settings.APP_VERSION)
 
-    try:
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            None,
-            lambda: alembic_command.upgrade(AlembicConfig("alembic.ini"), "head"),
-        )
-        logger.info("Database migrations applied")
-    except BaseException as exc:
-        logger.error(
-            "Migration failed — aborting startup",
-            error=str(exc),
-            error_type=type(exc).__name__,
-        )
-        raise SystemExit(1) from exc
-
     # Initialise Redis connection pool (used by CacheService and Celery)
     try:
         app.state.redis = aioredis.from_url(
@@ -51,11 +32,6 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Redis unavailable — cache disabled", error=str(exc))
         app.state.redis = None
-
-    # In development, ensure tables exist without running the full migration
-    if settings.DEBUG:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
 
     yield
 
