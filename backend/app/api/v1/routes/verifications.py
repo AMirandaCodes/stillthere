@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.deps import CurrentUser, DbSession, OptionalUser, PaginationDep
+from app.api.deps import CurrentUser, DbSession, OptionalUser, PaginationDep, VerificationRateLimit
 from app.schemas.common import PaginatedResponse
 from app.schemas.verification import (
     VerificationCreate,
@@ -30,6 +30,7 @@ async def submit_verification(
     payload: VerificationCreate,
     db: DbSession,
     current_user: OptionalUser,
+    _rl: VerificationRateLimit,
 ) -> VerificationJobResponse:
     service = VerificationService(db)
     return await service.submit(payload, user_id=current_user.id if current_user else None)

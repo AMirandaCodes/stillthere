@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     MAX_BATCH_SIZE: int = 50
     SERPER_MONTHLY_QUOTA: int = 2400   # 100-call buffer below the 2500 free-tier limit
 
+    # --- Per-user daily limits -------------------------------------------
+    DAILY_VERIFICATIONS_USER: int = 5
+    DAILY_VERIFICATIONS_GUEST: int = 1
+    DAILY_BATCH_UPLOADS_USER: int = 2
+
     # --- Pagination --------------------------------------------------------
     DEFAULT_PAGE_SIZE: int = 20
     MAX_PAGE_SIZE: int = 100

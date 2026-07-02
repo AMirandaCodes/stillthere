@@ -14,7 +14,7 @@ from uuid import UUID
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import CurrentUser, DbSession, PaginationDep
+from app.api.deps import BatchRateLimit, CurrentUser, DbSession, PaginationDep
 from app.models.enums import BatchJobStatus
 from app.schemas.batch import BatchJobResponse, JobResultResponse
 from app.schemas.common import PaginatedResponse
@@ -38,6 +38,7 @@ router = APIRouter()
 async def upload_batch(
     db: DbSession,
     current_user: CurrentUser,
+    _rl: BatchRateLimit,
     file: UploadFile = File(description="CSV file. Required columns: Name, Company. Optional: Email."),
 ) -> BatchJobResponse:
     service = BatchService(db)
