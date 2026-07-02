@@ -21,11 +21,17 @@ session loop would be reused on function loops — asyncpg rejects this ("Future
 attached to a different loop") which manifests as a hang waiting for a PostgreSQL
 socket that never replies.
 
-Fix: override event_loop to be session-scoped so that test_engine, db_session,
-and all test functions share ONE event loop. asyncpg connections are all on the
-same loop; standard connection pooling is safe and reuses connections between
-tests (no NullPool needed). The DeprecationWarning from overriding event_loop
-is suppressed by filterwarnings = ignore::DeprecationWarning in pytest.ini.
+Fix (part 1 — cross-loop): override event_loop to be session-scoped so that
+test_engine, db_session, and all test functions share ONE event loop.
+
+Fix (part 2 — concurrent-connection races): use NullPool on test_engine. With
+standard pooling, asyncpg keeps a background reader waiting for PostgreSQL's
+READY FOR QUERY message. If the pool recycles a connection before asyncpg
+receives that message, the next checkout finds the connection mid-read and raises
+"another operation is in progress". NullPool avoids this by never recycling;
+each session checkout creates a fresh asyncpg connection that is destroyed on
+close. The DeprecationWarning from overriding event_loop is suppressed by
+filterwarnings = ignore::DeprecationWarning in pytest.ini.
 """
 import asyncio
 import os
@@ -38,6 +44,7 @@ import pytest_asyncio  # noqa: E402
 from httpx import AsyncClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402
+from sqlalchemy.pool import NullPool  # noqa: E402
 
 import app.db.registry  # noqa: F401, E402 — registers all ORM models
 from app.api.deps import get_db  # noqa: E402
@@ -74,7 +81,7 @@ def event_loop():
 
 @pytest_asyncio.fixture(scope="session")
 async def test_engine():
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+    engine = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
