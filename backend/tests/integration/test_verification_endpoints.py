@@ -200,6 +200,20 @@ class TestListVerifications:
         response = await client.get("/api/v1/verifications")
         assert response.status_code == 401
 
+    async def test_list_excludes_guest_verifications(
+        self, client: AsyncClient, auth_headers
+    ):
+        """Verifications submitted without auth (user_id=NULL) must not appear in the
+        authenticated user's history."""
+        # Guest submission — no auth header, user_id stored as NULL
+        await client.post(
+            "/api/v1/verifications",
+            json={"full_name": "Ghost User", "company_name": "Ghost Corp"},
+        )
+        response = await client.get("/api/v1/verifications", headers=auth_headers)
+        names = [v["full_name"] for v in response.json()["items"]]
+        assert "Ghost User" not in names
+
     async def test_pagination_params_accepted(
         self, client: AsyncClient, auth_headers
     ):

@@ -43,11 +43,11 @@ async def submit_verification(
 async def list_verifications(
     pagination: PaginationDep,
     db: DbSession,
-    _: CurrentUser,
+    current_user: CurrentUser,
 ) -> PaginatedResponse[VerificationSummary]:
     service = VerificationService(db)
     return await service.list_results(
-        offset=pagination.offset, limit=pagination.page_size
+        offset=pagination.offset, limit=pagination.page_size, user_id=current_user.id
     )
 
 

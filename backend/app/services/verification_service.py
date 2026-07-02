@@ -181,9 +181,9 @@ class VerificationService:
         return _build_result_response(result)
 
     async def list_results(
-        self, offset: int, limit: int
+        self, offset: int, limit: int, user_id: UUID | None = None
     ) -> PaginatedResponse[VerificationSummary]:
-        results, total = await self._verifications.list_with_relations(offset, limit)
+        results, total = await self._verifications.list_with_relations(offset, limit, user_id=user_id)
         return PaginatedResponse(
             items=[_build_summary(r) for r in results],
             total=total,

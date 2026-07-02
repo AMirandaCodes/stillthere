@@ -74,19 +74,25 @@ class VerificationRepository(BaseRepository[VerificationResult]):
         return result.scalar_one_or_none()
 
     async def list_with_relations(
-        self, offset: int = 0, limit: int = 20
+        self, offset: int = 0, limit: int = 20, user_id: UUID | None = None
     ) -> tuple[list[VerificationResult], int]:
         """
-        Paginated list for the history view.
+        Paginated list for the history view, scoped to a specific user when
+        user_id is provided (NULL = no filter, returns all rows).
         Loads search → contact + company (no evidence sources — summary only).
         Returns (results, total_count) in one round-trip pair.
         """
-        total: int = await self.session.scalar(
+        count_stmt = (
             select(func.count(VerificationResult.id))
-        ) or 0
+            .join(VerificationResult.search)
+        )
+        if user_id is not None:
+            count_stmt = count_stmt.where(Search.user_id == user_id)
+        total: int = await self.session.scalar(count_stmt) or 0
 
         stmt = (
             select(VerificationResult)
+            .join(VerificationResult.search)
             .options(
                 selectinload(VerificationResult.search).options(
                     selectinload(Search.contact),
@@ -97,6 +103,8 @@ class VerificationRepository(BaseRepository[VerificationResult]):
             .offset(offset)
             .limit(limit)
         )
+        if user_id is not None:
+            stmt = stmt.where(Search.user_id == user_id)
         rows = await self.session.execute(stmt)
         return list(rows.scalars().all()), total
 
