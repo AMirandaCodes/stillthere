@@ -7,28 +7,29 @@ Fixture hierarchy:
   client       (function-scoped) → httpx AsyncClient wired to the test DB
   auth_headers (function-scoped) → registers a test user, returns Bearer headers
 
-Two non-obvious decisions:
-  - NullPool: prevents asyncpg "another operation is in progress" errors that occur when
-    the connection pool reuses the same connection for both the test session and the
-    post-test TRUNCATE.
-  - limiter._enabled = False: the module-level SlowAPI Limiter uses in-memory storage whose
-    counters accumulate across tests in the same process; disabling it prevents 429 errors
-    after the 5th call to /auth/register.
+Rate limiting is disabled by setting RATE_LIMITS_ENABLED=false BEFORE any app module is
+imported. The Limiter is a module-level singleton created at import time; patching its
+_enabled attribute after import (e.g. via autouse fixtures) does not reliably take effect
+because pytest-asyncio runs async fixture setup before sync autouse wrappers activate.
+
+NullPool prevents asyncpg "another operation is in progress" errors: without it, the pool
+may hand the same underlying connection to both the test session and the post-test TRUNCATE.
 """
 import os
 
-import pytest
-import pytest_asyncio
-from httpx import AsyncClient
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+# Must be set before any app import so rate_limiting.py reads it at module load time.
+os.environ.setdefault("RATE_LIMITS_ENABLED", "false")
 
-import app.db.registry  # noqa: F401 — registers all ORM models before engine creates tables
-from app.api.deps import get_db
-from app.core.rate_limiting import limiter
-from app.db.base import Base
-from app.main import app
+import pytest_asyncio  # noqa: E402
+from httpx import AsyncClient  # noqa: E402
+from sqlalchemy import text  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402
+from sqlalchemy.pool import NullPool  # noqa: E402
+
+import app.db.registry  # noqa: F401, E402 — registers all ORM models
+from app.api.deps import get_db  # noqa: E402
+from app.db.base import Base  # noqa: E402
+from app.main import app  # noqa: E402
 
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
@@ -40,19 +41,6 @@ _TEST_USER = {
     "full_name": "Test User",
     "password": "testpassword123",
 }
-
-
-@pytest.fixture(autouse=True)
-def disable_rate_limits():
-    """Disable rate limiting for all integration tests.
-
-    The in-memory rate limit counters persist across tests; without this, the
-    5/minute limit on /auth/register is hit after 5 tests and all subsequent
-    tests that use auth_headers receive 429.
-    """
-    limiter._enabled = False
-    yield
-    limiter._enabled = True
 
 
 @pytest_asyncio.fixture(scope="session")
