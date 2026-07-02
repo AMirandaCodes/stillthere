@@ -57,9 +57,9 @@ class TestSubmitVerification:
         )
         assert response.status_code == 202
 
-    async def test_submit_requires_auth(self, client: AsyncClient):
+    async def test_submit_allowed_without_auth(self, client: AsyncClient):
         response = await client.post("/api/v1/verifications", json=_VALID_PAYLOAD)
-        assert response.status_code == 401
+        assert response.status_code == 202
 
     async def test_submit_empty_name_rejected(self, client: AsyncClient, auth_headers):
         response = await client.post(
@@ -165,10 +165,10 @@ class TestGetVerification:
         )
         assert response.status_code == 404
 
-    async def test_get_requires_auth(self, client: AsyncClient, auth_headers):
+    async def test_get_allowed_without_auth(self, client: AsyncClient, auth_headers):
         vid = await self._submit(client, auth_headers)
         response = await client.get(f"/api/v1/verifications/{vid}")
-        assert response.status_code == 401
+        assert response.status_code == 200
 
 
 @pytest.mark.asyncio

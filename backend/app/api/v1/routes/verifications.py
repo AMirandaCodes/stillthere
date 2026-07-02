@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.deps import CurrentUser, DbSession, PaginationDep
+from app.api.deps import CurrentUser, DbSession, OptionalUser, PaginationDep
 from app.schemas.common import PaginatedResponse
 from app.schemas.verification import (
     VerificationCreate,
@@ -29,10 +29,10 @@ router = APIRouter()
 async def submit_verification(
     payload: VerificationCreate,
     db: DbSession,
-    current_user: CurrentUser,
+    current_user: OptionalUser,
 ) -> VerificationJobResponse:
     service = VerificationService(db)
-    return await service.submit(payload, user_id=current_user.id)
+    return await service.submit(payload, user_id=current_user.id if current_user else None)
 
 
 @router.get(
@@ -64,7 +64,6 @@ async def list_verifications(
 async def get_verification(
     verification_id: UUID,
     db: DbSession,
-    _: CurrentUser,
 ) -> VerificationResultResponse:
     service = VerificationService(db)
     result = await service.get_result(verification_id)

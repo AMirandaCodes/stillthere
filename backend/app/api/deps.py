@@ -82,6 +82,29 @@ async def get_current_user(
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
+
+async def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    """Like get_current_user but returns None for missing/invalid tokens instead of 401."""
+    if credentials is None:
+        return None
+    try:
+        payload = decode_access_token(credentials.credentials)
+    except JWTError:
+        return None
+    user_id_str: str | None = payload.get("sub")
+    if not user_id_str:
+        return None
+    user = await UserRepository(db).get_by_id(UUID(user_id_str))
+    if not user or not user.is_active:
+        return None
+    return user
+
+
+OptionalUser = Annotated[User | None, Depends(get_optional_user)]
+
 # ── Cache ──────────────────────────────────────────────────────────────────────
 
 async def get_cache(request: Request) -> CacheService:

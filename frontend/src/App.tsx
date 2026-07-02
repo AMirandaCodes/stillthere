@@ -12,18 +12,22 @@ import BatchJobsPage from "@/pages/BatchJobsPage";
 export default function App() {
   return (
     <Routes>
-      {/* Public routes */}
+      {/* Auth pages */}
       <Route path="/login"    element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
 
-      {/* Protected routes — wrapped in ProtectedRoute then Layout */}
+      {/* Guest-accessible pages — still wrapped in Layout for nav */}
+      <Route element={<Layout />}>
+        <Route path="/"            element={<HomePage />} />
+        <Route path="/results/:id" element={<VerificationResultPage />} />
+      </Route>
+
+      {/* Auth-required pages */}
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
-          <Route path="/"           element={<HomePage />} />
-          <Route path="/history"    element={<SearchHistoryPage />} />
-          <Route path="/batch"      element={<BatchUploadPage />} />
-          <Route path="/jobs"       element={<BatchJobsPage />} />
-          <Route path="/results/:id" element={<VerificationResultPage />} />
+          <Route path="/history" element={<SearchHistoryPage />} />
+          <Route path="/batch"   element={<BatchUploadPage />} />
+          <Route path="/jobs"    element={<BatchJobsPage />} />
         </Route>
       </Route>
 

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { verificationService } from "@/services/verificationService";
+import { useAuth } from "@/context/AuthContext";
 import Spinner from "@/components/ui/Spinner";
 import TriStateBadge from "@/components/ui/TriStateBadge";
 import StatusBadge from "@/components/ui/StatusBadge";
@@ -27,6 +28,7 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
 
 export default function VerificationResultPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["verification", id],
@@ -61,8 +63,12 @@ export default function VerificationResultPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <Link to="/history" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
-        <ArrowLeft className="h-4 w-4" /> Back to history
+      <Link
+        to={user ? "/history" : "/"}
+        className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        {user ? "Back to history" : "New verification"}
       </Link>
 
       {/* Header card */}

@@ -2,7 +2,11 @@ import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { ShieldCheck, LogOut } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
-const navLinks = [
+const guestNavLinks = [
+  { to: "/", label: "Verify", end: true },
+];
+
+const authNavLinks = [
   { to: "/",        label: "Verify",      end: true },
   { to: "/history", label: "History" },
   { to: "/batch",   label: "Batch Upload" },
@@ -17,6 +21,8 @@ export default function Layout() {
     await logout();
     navigate("/login");
   }
+
+  const navLinks = user ? authNavLinks : guestNavLinks;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -51,14 +57,33 @@ export default function Layout() {
           </div>
 
           <div className="flex items-center gap-4">
-            <span className="hidden text-xs text-gray-400 sm:block">{user?.email}</span>
-            <button
-              onClick={handleLogout}
-              className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900"
-            >
-              <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
+            {user ? (
+              <>
+                <span className="hidden text-xs text-gray-400 sm:block">{user.email}</span>
+                <button
+                  onClick={handleLogout}
+                  className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900"
+                >
+                  <LogOut className="h-4 w-4" />
+                  <span className="hidden sm:inline">Logout</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  className="text-sm text-gray-500 hover:text-gray-900"
+                >
+                  Log in
+                </Link>
+                <Link
+                  to="/register"
+                  className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700"
+                >
+                  Sign up
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </header>
