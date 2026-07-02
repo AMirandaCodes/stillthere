@@ -2,20 +2,31 @@
 Shared pytest fixtures.
 
 Fixture hierarchy:
-  test_engine  (session-scoped) → creates all tables once per test run
+  test_engine  (session-scoped) → creates all tables once per test run (NullPool)
   db_session   (function-scoped) → provides a fresh session per test; all data truncated after
   client       (function-scoped) → httpx AsyncClient wired to the test DB
   auth_headers (function-scoped) → registers a test user, returns Bearer headers
+
+Two non-obvious decisions:
+  - NullPool: prevents asyncpg "another operation is in progress" errors that occur when
+    the connection pool reuses the same connection for both the test session and the
+    post-test TRUNCATE.
+  - limiter._enabled = False: the module-level SlowAPI Limiter uses in-memory storage whose
+    counters accumulate across tests in the same process; disabling it prevents 429 errors
+    after the 5th call to /auth/register.
 """
 import os
 
+import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 import app.db.registry  # noqa: F401 — registers all ORM models before engine creates tables
 from app.api.deps import get_db
+from app.core.rate_limiting import limiter
 from app.db.base import Base
 from app.main import app
 
@@ -31,9 +42,22 @@ _TEST_USER = {
 }
 
 
+@pytest.fixture(autouse=True)
+def disable_rate_limits():
+    """Disable rate limiting for all integration tests.
+
+    The in-memory rate limit counters persist across tests; without this, the
+    5/minute limit on /auth/register is hit after 5 tests and all subsequent
+    tests that use auth_headers receive 429.
+    """
+    limiter._enabled = False
+    yield
+    limiter._enabled = True
+
+
 @pytest_asyncio.fixture(scope="session")
 async def test_engine():
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+    engine = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
@@ -45,17 +69,14 @@ async def test_engine():
 
 @pytest_asyncio.fixture
 async def db_session(test_engine) -> AsyncSession:
-    """Each test gets its own session. All table data is truncated after the test runs.
-
-    Using TRUNCATE instead of transaction rollback avoids asyncpg errors caused by
-    savepoint operations conflicting with concurrent async operations on the same connection.
-    """
+    """Each test gets its own session. All table data is truncated after the test runs."""
     session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
     async with session_factory() as session:
         yield session
-    async with test_engine.begin() as conn:
+    async with test_engine.connect() as conn:
         table_names = ", ".join(t.name for t in Base.metadata.sorted_tables)
         await conn.execute(text(f"TRUNCATE {table_names} RESTART IDENTITY CASCADE"))
+        await conn.commit()
 
 
 @pytest_asyncio.fixture
