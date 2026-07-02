@@ -46,6 +46,11 @@ aiofiles==23.2.1
 tenacity==8.5.0          # retry logic for external API calls
 
 # --- Testing ---------------------------------------------------------------
+# anyio<4 pins to the 3.x series, which is compatible with starlette 0.37.x.
+# anyio 4.x introduced task-group changes that leave BaseHTTPMiddleware tasks
+# pending in the test event loop, causing "Future attached to a different loop"
+# errors during fixture teardown.
+anyio>=3.7.0,<4.0.0
 pytest==8.3.2
 pytest-asyncio==0.23.8
 pytest-cov==5.0.0

@@ -73,9 +73,17 @@ def event_loop():
     setup land on the session loop; function-scoped tests then try to reuse those
     connections on their own function loops, which asyncpg rejects — causing the
     DB socket to wait forever and the test to hit --timeout.
+
+    asyncio.set_event_loop(loop) is critical: without it, asyncio.get_event_loop()
+    (used by asyncpg, anyio, and Starlette's BaseHTTPMiddleware when called outside
+    a running coroutine) returns a different default loop. Futures and Tasks created
+    on that default loop cannot be awaited on the session loop, producing "Future
+    attached to a different loop" errors during fixture teardown.
     """
     loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     yield loop
+    asyncio.set_event_loop(None)
     loop.close()
 
 
