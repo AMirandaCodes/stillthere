@@ -95,21 +95,35 @@ def event_loop():
 
 
 @pytest_asyncio.fixture(scope="session")
-async def test_engine():
-    """Session-scoped engine: creates the schema once and drops it at the end.
+async def _create_tables():
+    """Session-scoped schema setup: drop_all → create_all once per run, drop on exit.
 
-    NullPool means this fixture holds no persistent connections — it creates
-    a connection for drop_all/create_all and immediately destroys it. Function-
-    scoped fixtures that use this engine create their own fresh connections on
-    their own event loops.
+    Runs on pytest-asyncio's internal session loop. Holds no persistent
+    connections after the setup/teardown coroutines complete (NullPool).
     """
     engine = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
-    yield engine
+    yield
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def test_engine(_create_tables):
+    """Function-scoped engine: a fresh AsyncEngine per test, always on the current loop.
+
+    Because this fixture is function-scoped it runs on L_func (the per-test
+    loop provided by the event_loop fixture). All asyncpg connections created
+    from this engine — whether by db_session or by _session_factory_patch in
+    task tests — are therefore registered with L_func's selector. This
+    eliminates the cross-loop asyncpg hang that arises when a session-scoped
+    engine created on a different internal loop is reused on function loops.
+    """
+    engine = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
+    yield engine
     await engine.dispose()
 
 

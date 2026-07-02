@@ -221,7 +221,7 @@ class TestBatchTaskOrchestration:
         with _session_factory_patch(test_engine):
             await _process_batch_job_async(job_id)
 
-        await db_session.expire_all()
+        db_session.expire_all()
         batch_job = await db_session.get(BatchJob, UUID(job_id))
         await db_session.refresh(batch_job)
         assert batch_job.status in (BatchJobStatus.RUNNING, BatchJobStatus.COMPLETE)
@@ -233,7 +233,7 @@ class TestBatchTaskOrchestration:
         job_id = await self._upload_csv(client, auth_headers, csv)
 
         # Get the PENDING job_result ID
-        await db_session.expire_all()
+        db_session.expire_all()
         batch_job = await db_session.get(BatchJob, UUID(job_id))
         stmt = select(JobResult).where(
             JobResult.batch_job_id == batch_job.id,
@@ -254,7 +254,7 @@ class TestBatchTaskOrchestration:
                 with _session_factory_patch(test_engine):
                     await _process_batch_row_async(job_id, jr_id)
 
-        await db_session.expire_all()
+        db_session.expire_all()
         jr_reloaded = await db_session.get(JobResult, UUID(jr_id))
         await db_session.refresh(jr_reloaded)
         assert jr_reloaded.status == JobResultStatus.SUCCESS
@@ -265,7 +265,7 @@ class TestBatchTaskOrchestration:
         csv = _csv_bytes(("Bob Jones", "Acme Ltd", "bob@acme.com"))
         job_id = await self._upload_csv(client, auth_headers, csv)
 
-        await db_session.expire_all()
+        db_session.expire_all()
         batch_job = await db_session.get(BatchJob, UUID(job_id))
         stmt = select(JobResult).where(JobResult.batch_job_id == batch_job.id,
                                        JobResult.status == JobResultStatus.PENDING)
@@ -285,7 +285,7 @@ class TestBatchTaskOrchestration:
                 with _session_factory_patch(test_engine):
                     await _process_batch_row_async(job_id, jr_id)
 
-        await db_session.expire_all()
+        db_session.expire_all()
         ver = await db_session.get(VerificationResult, ver_id)
         await db_session.refresh(ver)
         assert ver.status == VerificationStatus.COMPLETE
@@ -301,7 +301,7 @@ class TestBatchTaskOrchestration:
         with _session_factory_patch(test_engine):
             await _process_batch_job_async(job_id)
 
-        await db_session.expire_all()
+        db_session.expire_all()
         batch_job = await db_session.get(BatchJob, UUID(job_id))
         await db_session.refresh(batch_job)
         assert batch_job.status == BatchJobStatus.COMPLETE
@@ -313,7 +313,7 @@ class TestBatchTaskOrchestration:
         csv = _csv_bytes(("Carol White", "TestCo", "carol@testco.com"))
         job_id = await self._upload_csv(client, auth_headers, csv)
 
-        await db_session.expire_all()
+        db_session.expire_all()
         batch_job = await db_session.get(BatchJob, UUID(job_id))
         stmt = select(JobResult).where(JobResult.batch_job_id == batch_job.id,
                                        JobResult.status == JobResultStatus.PENDING)
@@ -353,7 +353,7 @@ class TestBatchTaskOrchestration:
         csv = _csv_bytes(("Dave Brown", "FailCo", "dave@failco.com"))
         job_id = await self._upload_csv(client, auth_headers, csv)
 
-        await db_session.expire_all()
+        db_session.expire_all()
         batch_job = await db_session.get(BatchJob, UUID(job_id))
         stmt = select(JobResult).where(JobResult.batch_job_id == batch_job.id,
                                        JobResult.status == JobResultStatus.PENDING)
@@ -367,7 +367,7 @@ class TestBatchTaskOrchestration:
             with _session_factory_patch(test_engine):
                 await _process_batch_row_async(job_id, jr_id)
 
-        await db_session.expire_all()
+        db_session.expire_all()
         jr_reloaded = await db_session.get(JobResult, UUID(jr_id))
         await db_session.refresh(jr_reloaded)
         assert jr_reloaded.status == JobResultStatus.FAILED
@@ -435,7 +435,7 @@ class TestBatchExportEndpoint:
         job_id = upload_r.json()["id"]
 
         # Process the row so the job completes
-        await db_session.expire_all()
+        db_session.expire_all()
         batch_job = await db_session.get(BatchJob, UUID(job_id))
         stmt = select(JobResult).where(JobResult.batch_job_id == batch_job.id,
                                        JobResult.status == JobResultStatus.PENDING)

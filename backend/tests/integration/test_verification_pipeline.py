@@ -279,7 +279,7 @@ class TestRunVerificationAsync:
                 with self._session_factory_patch(test_engine):
                     await _run_verification_async(vid)
 
-        await db_session.expire_all()
+        db_session.expire_all()
         from uuid import UUID
         result = await db_session.get(VerificationResult, UUID(vid))
         await db_session.refresh(result)
@@ -303,7 +303,7 @@ class TestRunVerificationAsync:
                 with self._session_factory_patch(test_engine):
                     await _run_verification_async(vid)
 
-        await db_session.expire_all()
+        db_session.expire_all()
         stmt = (
             select(VerificationResult)
             .options(selectinload(VerificationResult.evidence_sources))
@@ -327,7 +327,7 @@ class TestRunVerificationAsync:
                 with self._session_factory_patch(test_engine):
                     await _run_verification_async(vid)
 
-        await db_session.expire_all()
+        db_session.expire_all()
         result = await db_session.get(VerificationResult, UUID(vid))
         await db_session.refresh(result)
         assert result.status == VerificationStatus.FAILED

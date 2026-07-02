@@ -2,6 +2,8 @@
 Integration tests for the /auth endpoints.
 Requires a running PostgreSQL instance (uses the test DB from conftest.py).
 """
+import asyncio
+
 import pytest
 from httpx import AsyncClient
 
@@ -91,6 +93,7 @@ class TestTokenRefresh:
 
     async def test_refresh_returns_new_tokens(self, client: AsyncClient):
         tokens = await self._register_and_login(client, "grace@example.com")
+        await asyncio.sleep(1)  # ensure different iat so JWT access tokens differ
         response = await client.post(
             "/api/v1/auth/refresh",
             json={"refresh_token": tokens["refresh_token"]},
