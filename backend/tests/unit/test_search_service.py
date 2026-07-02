@@ -26,19 +26,19 @@ _SERPER_EMPTY = {"organic": []}
 class TestQueryCount:
     async def test_fires_three_queries_without_email(self):
         with respx.mock() as router:
-            router.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(200, json=_SERPER_OK))
+            route = router.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(200, json=_SERPER_OK))
             async with httpx.AsyncClient() as client:
                 svc = SearchService(api_key="test-key", http_client=client)
                 await svc.search("John Smith", "Acme Ltd")
-        assert len(router.calls) == 3
+        assert route.call_count == 3
 
     async def test_fires_four_queries_with_email(self):
         with respx.mock() as router:
-            router.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(200, json=_SERPER_OK))
+            route = router.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(200, json=_SERPER_OK))
             async with httpx.AsyncClient() as client:
                 svc = SearchService(api_key="test-key", http_client=client)
                 await svc.search("John Smith", "Acme Ltd", email="john@acme.com")
-        assert len(router.calls) == 4
+        assert route.call_count == 4
 
 
 # ── Result parsing ─────────────────────────────────────────────────────────────

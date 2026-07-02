@@ -78,15 +78,14 @@ class TestFetchPages:
         assert pages[0].error is not None
 
     async def test_non_html_content_type_returns_fetch_ok_false(self):
+        url = "https://example.com/api/feed"  # no binary extension — request will be made
         with respx.mock() as router:
-            router.get("https://example.com/data.json").mock(
+            router.get(url).mock(
                 return_value=httpx.Response(200, content=b'{"k":"v"}',
                                             headers={"content-type": "application/json"})
             )
             async with httpx.AsyncClient() as client:
-                pages = await EvidenceService(http_client=client).fetch_pages(
-                    ["https://example.com/data.json"]
-                )
+                pages = await EvidenceService(http_client=client).fetch_pages([url])
 
         assert pages[0].fetch_ok is False
 

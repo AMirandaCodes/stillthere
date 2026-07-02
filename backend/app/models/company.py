@@ -14,8 +14,8 @@ class Company(BaseModel):
     __tablename__ = "companies"
 
     name: Mapped[str] = mapped_column(String(500), nullable=False)
-    normalized_name: Mapped[str] = mapped_column(String(500), nullable=False, index=True)
-    domain: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    normalized_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
     website: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
