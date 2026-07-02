@@ -2,35 +2,42 @@
 Shared pytest fixtures.
 
 Fixture hierarchy:
+  event_loop   (session-scoped) → one asyncio loop for all tests
   test_engine  (session-scoped) → creates all tables once per test run
-  db_session   (function-scoped) → provides a fresh session per test; TRUNCATE via same session
+  db_session   (function-scoped) → fresh session per test; TRUNCATE on teardown
   client       (function-scoped) → httpx AsyncClient wired to the test DB
   auth_headers (function-scoped) → registers a test user, returns Bearer headers
 
-Rate limiting is disabled by setting RATE_LIMITS_ENABLED=false BEFORE any app module is
-imported. The Limiter is a module-level singleton created at import time; patching its
-_enabled attribute after import does not reliably take effect because pytest-asyncio runs
-async fixture setup before sync autouse wrappers activate.
+Rate limiting is disabled by setting RATE_LIMITS_ENABLED=false BEFORE any app
+module is imported. The Limiter is a module-level singleton created at import
+time; patching its _enabled attribute after import does not reliably take effect.
 
-NullPool was removed: it caused every DB operation to open a new TCP connection to
-PostgreSQL (no reuse), adding ~100ms per connection × hundreds of connections = minutes of
-overhead across 60+ tests. Standard pooling reuses connections; the asyncpg "another
-operation is in progress" error that originally prompted NullPool was caused by savepoints
-(since removed — we now use TRUNCATE cleanup instead).
+Event-loop design
+-----------------
+pytest-asyncio 0.23.x creates a NEW event loop per test function by default.
+The session-scoped test_engine is created on a separate session-level loop.
+When function-level tests use test_engine, asyncpg connections created on the
+session loop would be reused on function loops — asyncpg rejects this ("Future
+attached to a different loop") which manifests as a hang waiting for a PostgreSQL
+socket that never replies.
 
-TRUNCATE runs through the same db_session connection (not a separate connection) to avoid
-any pool-reuse race conditions.
+Fix: override event_loop to be session-scoped so that test_engine, db_session,
+and all test functions share ONE event loop. asyncpg connections are all on the
+same loop; standard connection pooling is safe and reuses connections between
+tests (no NullPool needed). The DeprecationWarning from overriding event_loop
+is suppressed by filterwarnings = ignore::DeprecationWarning in pytest.ini.
 """
+import asyncio
 import os
 
 # Must be set before any app import so rate_limiting.py reads it at module load time.
 os.environ.setdefault("RATE_LIMITS_ENABLED", "false")
 
+import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 from httpx import AsyncClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402
-from sqlalchemy.pool import NullPool  # noqa: E402
 
 import app.db.registry  # noqa: F401, E402 — registers all ORM models
 from app.api.deps import get_db  # noqa: E402
@@ -49,9 +56,25 @@ _TEST_USER = {
 }
 
 
+@pytest.fixture(scope="session")
+def event_loop():
+    """Single asyncio event loop for the entire test session.
+
+    Overrides the default function-scoped event_loop fixture from pytest-asyncio
+    so that test_engine (session-scoped) and all test functions share one loop.
+    Without this, session-scoped asyncpg connections created during test_engine
+    setup land on the session loop; function-scoped tests then try to reuse those
+    connections on their own function loops, which asyncpg rejects — causing the
+    DB socket to wait forever and the test to hit --timeout.
+    """
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
+
+
 @pytest_asyncio.fixture(scope="session")
 async def test_engine():
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
+    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
@@ -63,12 +86,12 @@ async def test_engine():
 
 @pytest_asyncio.fixture
 async def db_session(test_engine) -> AsyncSession:
-    """Each test gets its own session. All table data is truncated after the test runs.
+    """Each test gets its own session. Tables are TRUNCATE'd on teardown.
 
-    TRUNCATE runs through the same session (same pooled connection) to avoid
-    the asyncpg "another operation is in progress" race that occurs when a
-    separate connection tries to run TRUNCATE while the pool still considers
-    the previous connection active.
+    TRUNCATE runs through the SAME session connection to avoid the asyncpg
+    "another operation is in progress" error that occurs when a separate
+    engine.connect() is used while the session connection is still being
+    cleaned up by the pool.
     """
     session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
     async with session_factory() as session:
