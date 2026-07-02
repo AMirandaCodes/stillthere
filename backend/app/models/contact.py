@@ -14,7 +14,7 @@ class Contact(BaseModel):
     __tablename__ = "contacts"
 
     full_name: Mapped[str] = mapped_column(String(500), nullable=False)
-    normalized_name: Mapped[str] = mapped_column(String(500), nullable=False, index=True)
+    normalized_name: Mapped[str] = mapped_column(String(500), nullable=False)
     email: Mapped[str | None] = mapped_column(String(500), nullable=True, unique=True, index=True)
 
     # Relationships

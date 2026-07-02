@@ -31,8 +31,8 @@ _URL = "https://example.com/profile"
 @pytest.mark.asyncio
 class TestFetchPages:
     async def test_returns_page_content_on_success(self):
-        with respx.mock():
-            respx.get(_URL).mock(
+        with respx.mock() as router:
+            router.get(_URL).mock(
                 return_value=httpx.Response(200, content=_HTML,
                                             headers={"content-type": "text/html"})
             )
@@ -46,8 +46,8 @@ class TestFetchPages:
         assert "John Smith" in pages[0].text
 
     async def test_strips_script_tags(self):
-        with respx.mock():
-            respx.get(_URL).mock(
+        with respx.mock() as router:
+            router.get(_URL).mock(
                 return_value=httpx.Response(200, content=_HTML,
                                             headers={"content-type": "text/html"})
             )
@@ -57,8 +57,8 @@ class TestFetchPages:
         assert 'alert("evil")' not in pages[0].text
 
     async def test_strips_nav_and_footer(self):
-        with respx.mock():
-            respx.get(_URL).mock(
+        with respx.mock() as router:
+            router.get(_URL).mock(
                 return_value=httpx.Response(200, content=_HTML,
                                             headers={"content-type": "text/html"})
             )
@@ -69,8 +69,8 @@ class TestFetchPages:
         assert "Footer" not in pages[0].text
 
     async def test_failed_request_returns_fetch_ok_false(self):
-        with respx.mock():
-            respx.get(_URL).mock(return_value=httpx.Response(500))
+        with respx.mock() as router:
+            router.get(_URL).mock(return_value=httpx.Response(500))
             async with httpx.AsyncClient() as client:
                 pages = await EvidenceService(http_client=client).fetch_pages([_URL])
 
@@ -78,8 +78,8 @@ class TestFetchPages:
         assert pages[0].error is not None
 
     async def test_non_html_content_type_returns_fetch_ok_false(self):
-        with respx.mock():
-            respx.get("https://example.com/data.json").mock(
+        with respx.mock() as router:
+            router.get("https://example.com/data.json").mock(
                 return_value=httpx.Response(200, content=b'{"k":"v"}',
                                             headers={"content-type": "application/json"})
             )
@@ -92,7 +92,7 @@ class TestFetchPages:
 
     async def test_binary_extension_skipped_without_request(self):
         """PDF URLs must not even make an HTTP request."""
-        with respx.mock() as router:
+        with respx.mock(assert_all_called=False) as router:
             router.get("https://example.com/report.pdf").mock(
                 return_value=httpx.Response(200, content=b"%PDF")
             )
@@ -102,12 +102,12 @@ class TestFetchPages:
                 )
 
         assert pages[0].fetch_ok is False
-        assert router.call_count == 0  # no HTTP request made
+        assert len(router.calls) == 0  # no HTTP request made
 
     async def test_respects_max_pages_limit(self):
         urls = [f"https://example.com/page/{i}" for i in range(20)]
-        with respx.mock():
-            respx.get(url__regex=r"https://example\.com/page/\d+").mock(
+        with respx.mock() as router:
+            router.get(url__regex=r"https://example\.com/page/\d+").mock(
                 return_value=httpx.Response(200, content=_HTML,
                                             headers={"content-type": "text/html"})
             )
@@ -120,8 +120,8 @@ class TestFetchPages:
 
     async def test_text_truncated_to_max_chars(self):
         long_body = b"<html><body><p>" + b"x" * 10_000 + b"</p></body></html>"
-        with respx.mock():
-            respx.get(_URL).mock(
+        with respx.mock() as router:
+            router.get(_URL).mock(
                 return_value=httpx.Response(200, content=long_body,
                                             headers={"content-type": "text/html"})
             )

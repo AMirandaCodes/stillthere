@@ -76,8 +76,9 @@ class TestLevelThresholds:
         assert result.level == ConfidenceLevel.LOW
 
     def test_medium_between_40_and_70(self, svc):
-        partial = {**_ALL_UNCLEAR, "person_found": TriState.YES, "company_active": TriState.YES}
-        sources = [EvidenceSourceType.SEARCH_RESULT, EvidenceSourceType.SEARCH_RESULT]
+        # 3 YES fields = 30 field pts; 1 business_directory (7) + 1 search_result (5) = 12 source pts → total 42
+        partial = {**_ALL_UNCLEAR, "person_found": TriState.YES, "appears_associated": TriState.YES, "company_active": TriState.YES}
+        sources = [EvidenceSourceType.BUSINESS_DIRECTORY, EvidenceSourceType.SEARCH_RESULT]
         result = svc.score(partial, sources)
         assert 40 <= result.score < 70
         assert result.level == ConfidenceLevel.MEDIUM

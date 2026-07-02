@@ -30,7 +30,7 @@ class TestQueryCount:
             async with httpx.AsyncClient() as client:
                 svc = SearchService(api_key="test-key", http_client=client)
                 await svc.search("John Smith", "Acme Ltd")
-        assert router.call_count == 3
+        assert len(router.calls) == 3
 
     async def test_fires_four_queries_with_email(self):
         with respx.mock() as router:
@@ -38,7 +38,7 @@ class TestQueryCount:
             async with httpx.AsyncClient() as client:
                 svc = SearchService(api_key="test-key", http_client=client)
                 await svc.search("John Smith", "Acme Ltd", email="john@acme.com")
-        assert router.call_count == 4
+        assert len(router.calls) == 4
 
 
 # ── Result parsing ─────────────────────────────────────────────────────────────
@@ -46,8 +46,8 @@ class TestQueryCount:
 @pytest.mark.asyncio
 class TestResultParsing:
     async def test_returns_hits_from_organic_results(self):
-        with respx.mock():
-            respx.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(200, json=_SERPER_OK))
+        with respx.mock() as router:
+            router.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(200, json=_SERPER_OK))
             async with httpx.AsyncClient() as client:
                 svc = SearchService(api_key="test-key", http_client=client)
                 results = await svc.search("John Smith", "Acme Ltd")
@@ -56,8 +56,8 @@ class TestResultParsing:
 
     async def test_deduplicates_urls_across_queries(self):
         """Same URL from different queries should appear only once."""
-        with respx.mock():
-            respx.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(200, json=_SERPER_OK))
+        with respx.mock() as router:
+            router.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(200, json=_SERPER_OK))
             async with httpx.AsyncClient() as client:
                 svc = SearchService(api_key="test-key", http_client=client)
                 results = await svc.search("John Smith", "Acme Ltd")
@@ -65,16 +65,16 @@ class TestResultParsing:
         assert len(urls) == len(set(urls))
 
     async def test_records_queries_run(self):
-        with respx.mock():
-            respx.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(200, json=_SERPER_OK))
+        with respx.mock() as router:
+            router.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(200, json=_SERPER_OK))
             async with httpx.AsyncClient() as client:
                 svc = SearchService(api_key="test-key", http_client=client)
                 results = await svc.search("John Smith", "Acme Ltd")
         assert len(results.queries_run) == 3
 
     async def test_empty_organic_results(self):
-        with respx.mock():
-            respx.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(200, json=_SERPER_EMPTY))
+        with respx.mock() as router:
+            router.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(200, json=_SERPER_EMPTY))
             async with httpx.AsyncClient() as client:
                 svc = SearchService(api_key="test-key", http_client=client)
                 results = await svc.search("Nobody", "Ghost Corp")
@@ -82,8 +82,8 @@ class TestResultParsing:
         assert len(results.queries_run) == 3  # queries ran, just no results
 
     async def test_raw_data_stored_per_query_type(self):
-        with respx.mock():
-            respx.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(200, json=_SERPER_OK))
+        with respx.mock() as router:
+            router.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(200, json=_SERPER_OK))
             async with httpx.AsyncClient() as client:
                 svc = SearchService(api_key="test-key", http_client=client)
                 results = await svc.search("John Smith", "Acme Ltd")
@@ -106,8 +106,8 @@ class TestErrorHandling:
                 return httpx.Response(503, json={"error": "unavailable"})
             return httpx.Response(200, json=_SERPER_OK)
 
-        with respx.mock():
-            respx.post(SERPER_ENDPOINT).mock(side_effect=alternate)
+        with respx.mock() as router:
+            router.post(SERPER_ENDPOINT).mock(side_effect=alternate)
             async with httpx.AsyncClient() as client:
                 svc = SearchService(api_key="test-key", http_client=client)
                 results = await svc.search("John Smith", "Acme Ltd")
@@ -116,8 +116,8 @@ class TestErrorHandling:
 
     async def test_all_queries_fail_returns_empty_queries_run(self):
         """When all queries fail, queries_run is empty (pipeline will raise)."""
-        with respx.mock():
-            respx.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(401, json={"message": "Unauthorized"}))
+        with respx.mock() as router:
+            router.post(SERPER_ENDPOINT).mock(return_value=httpx.Response(401, json={"message": "Unauthorized"}))
             async with httpx.AsyncClient() as client:
                 svc = SearchService(api_key="bad-key", http_client=client)
                 results = await svc.search("John Smith", "Acme Ltd")

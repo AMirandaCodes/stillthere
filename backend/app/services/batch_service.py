@@ -60,7 +60,7 @@ def parse_csv(text: str) -> tuple[list[str], list[dict[str, str]]]:
 
     Headers are lowercased and stripped.  Rows with all-empty values are excluded.
     """
-    reader = csv.DictReader(io.StringIO(text))
+    reader = csv.DictReader(io.StringIO(text.lstrip("﻿")))
     raw_fields = reader.fieldnames or []
     headers = [h.strip().lower() for h in raw_fields if h is not None]
     rows: list[dict[str, str]] = []
