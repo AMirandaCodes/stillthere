@@ -3,7 +3,7 @@ Shared pytest fixtures.
 
 Fixture hierarchy:
   test_engine  (session-scoped) → creates all tables once per test run
-  db_session   (function-scoped) → wraps each test in a rolled-back connection-level transaction
+  db_session   (function-scoped) → provides a fresh session per test; all data truncated after
   client       (function-scoped) → httpx AsyncClient wired to the test DB
   auth_headers (function-scoped) → registers a test user, returns Bearer headers
 """
@@ -11,6 +11,7 @@ import os
 
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 import app.db.registry  # noqa: F401 — registers all ORM models before engine creates tables
@@ -44,21 +45,17 @@ async def test_engine():
 
 @pytest_asyncio.fixture
 async def db_session(test_engine) -> AsyncSession:
-    """Each test runs inside a connection-level transaction rolled back on teardown.
+    """Each test gets its own session. All table data is truncated after the test runs.
 
-    session.commit() calls create savepoints rather than committing the outer
-    transaction, so writes are visible within the test but never persisted.
+    Using TRUNCATE instead of transaction rollback avoids asyncpg errors caused by
+    savepoint operations conflicting with concurrent async operations on the same connection.
     """
-    async with test_engine.connect() as connection:
-        await connection.begin()
-        SessionFactory = async_sessionmaker(
-            connection,
-            expire_on_commit=False,
-            join_transaction_mode="create_savepoint",
-        )
-        async with SessionFactory() as session:
-            yield session
-        await connection.rollback()
+    session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with session_factory() as session:
+        yield session
+    async with test_engine.begin() as conn:
+        table_names = ", ".join(t.name for t in Base.metadata.sorted_tables)
+        await conn.execute(text(f"TRUNCATE {table_names} RESTART IDENTITY CASCADE"))
 
 
 @pytest_asyncio.fixture
@@ -69,7 +66,6 @@ async def client(db_session: AsyncSession) -> AsyncClient:
         yield db_session
 
     app.dependency_overrides[get_db] = _override_get_db
-    # Disable Redis in tests: cache falls back gracefully when app.state.redis is None
     app.state.redis = None
 
     async with AsyncClient(app=app, base_url="http://test") as c:
@@ -81,11 +77,13 @@ async def client(db_session: AsyncSession) -> AsyncClient:
 @pytest_asyncio.fixture
 async def auth_headers(client: AsyncClient) -> dict[str, str]:
     """Register a test user and return Bearer auth headers."""
-    await client.post("/api/v1/auth/register", json=_TEST_USER)
+    reg = await client.post("/api/v1/auth/register", json=_TEST_USER)
+    assert reg.status_code in (200, 201), f"Registration failed: {reg.text}"
 
-    response = await client.post(
+    login = await client.post(
         "/api/v1/auth/login",
         json={"email": _TEST_USER["email"], "password": _TEST_USER["password"]},
     )
-    token = response.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+    assert login.status_code == 200, f"Login failed: {login.text}"
+
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
