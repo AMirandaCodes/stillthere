@@ -16,6 +16,7 @@ Separate tests cover the _run_verification_async DB integration:
   - Writes results back to DB after pipeline completion
   - Idempotency guard (COMPLETE → skip, RUNNING → crash recovery)
 """
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -277,7 +278,9 @@ class TestRunVerificationAsync:
             )
             with patch("anthropic.AsyncAnthropic", return_value=_mock_llm_client()):
                 with self._session_factory_patch(test_engine):
-                    await _run_verification_async(vid)
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: asyncio.run(_run_verification_async(vid))
+                    )
 
         db_session.expire_all()
         from uuid import UUID
@@ -301,7 +304,9 @@ class TestRunVerificationAsync:
             )
             with patch("anthropic.AsyncAnthropic", return_value=_mock_llm_client()):
                 with self._session_factory_patch(test_engine):
-                    await _run_verification_async(vid)
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: asyncio.run(_run_verification_async(vid))
+                    )
 
         db_session.expire_all()
         stmt = (
@@ -325,7 +330,9 @@ class TestRunVerificationAsync:
             )
             with patch("anthropic.AsyncAnthropic", return_value=_mock_llm_client()):
                 with self._session_factory_patch(test_engine):
-                    await _run_verification_async(vid)
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: asyncio.run(_run_verification_async(vid))
+                    )
 
         db_session.expire_all()
         result = await db_session.get(VerificationResult, UUID(vid))
@@ -350,14 +357,19 @@ class TestRunVerificationAsync:
             )
             with patch("anthropic.AsyncAnthropic", return_value=_mock_llm_client()):
                 with self._session_factory_patch(test_engine):
-                    await _run_verification_async(vid)
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: asyncio.run(_run_verification_async(vid))
+                    )
 
-        # Second run: Serper should NOT be called again
-        with respx.mock() as router2:
+        # Second run: Serper should NOT be called again (assert_all_called=False because
+        # the route is intentionally never hit; idempotency is verified by call_count)
+        with respx.mock(assert_all_called=False) as router2:
             serper_route = router2.post(SERPER_ENDPOINT).mock(
                 return_value=httpx.Response(200, json=_SERPER_RESPONSE)
             )
             with self._session_factory_patch(test_engine):
-                await _run_verification_async(vid)
+                await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: asyncio.run(_run_verification_async(vid))
+                )
 
         assert serper_route.call_count == 0

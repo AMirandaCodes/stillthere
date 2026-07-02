@@ -337,8 +337,9 @@ class TestBatchTaskOrchestration:
                 with _session_factory_patch(test_engine):
                     await _process_batch_row_async(job_id, jr_id)
 
-        # Second run — Serper must NOT be called again
-        with respx.mock() as router2:
+        # Second run — Serper must NOT be called again (assert_all_called=False because
+        # the route is intentionally never hit; idempotency check is via call_count below)
+        with respx.mock(assert_all_called=False) as router2:
             router2.post(SERPER_ENDPOINT).mock(
                 return_value=httpx.Response(200, json=_SERPER_RESPONSE)
             )
@@ -434,9 +435,15 @@ class TestBatchExportEndpoint:
         )
         job_id = upload_r.json()["id"]
 
-        # Process the row so the job completes
+        # Process the row so the job completes.
+        # Must set status=RUNNING first: _increment_counters only marks the job
+        # COMPLETE when it finds BatchJob.status == RUNNING (calling _process_batch_row_async
+        # directly bypasses _process_batch_job_async which normally does this).
         db_session.expire_all()
         batch_job = await db_session.get(BatchJob, UUID(job_id))
+        batch_job.status = BatchJobStatus.RUNNING
+        await db_session.commit()
+
         stmt = select(JobResult).where(JobResult.batch_job_id == batch_job.id,
                                        JobResult.status == JobResultStatus.PENDING)
         jr = (await db_session.execute(stmt)).scalar_one()
