@@ -2,36 +2,38 @@
 Shared pytest fixtures.
 
 Fixture hierarchy:
-  event_loop   (session-scoped) → one asyncio loop for all tests
-  test_engine  (session-scoped) → creates all tables once per test run
+  event_loop   (function-scoped) → fresh asyncio loop per test with task cleanup
+  test_engine  (session-scoped)  → creates all tables once per test run
   db_session   (function-scoped) → fresh session per test; TRUNCATE on teardown
   client       (function-scoped) → httpx AsyncClient wired to the test DB
   auth_headers (function-scoped) → registers a test user, returns Bearer headers
 
-Rate limiting is disabled by setting RATE_LIMITS_ENABLED=false BEFORE any app
-module is imported. The Limiter is a module-level singleton created at import
-time; patching its _enabled attribute after import does not reliably take effect.
+NullPool on test_engine
+------------------------
+asyncpg connections are bound to the event loop that created them.
+With NullPool, every session checkout creates a fresh asyncpg connection on the
+CURRENT running loop, so function-scoped sessions are always on the function
+loop even though test_engine itself is session-scoped. Without NullPool, pooled
+connections from the session-setup loop would be reused on function loops,
+causing "Future attached to a different loop" errors.
 
-Event-loop design
------------------
-pytest-asyncio 0.23.x creates a NEW event loop per test function by default.
-The session-scoped test_engine is created on a separate session-level loop.
-When function-level tests use test_engine, asyncpg connections created on the
-session loop would be reused on function loops — asyncpg rejects this ("Future
-attached to a different loop") which manifests as a hang waiting for a PostgreSQL
-socket that never replies.
+Function-scoped event_loop with task cleanup
+---------------------------------------------
+Starlette's BaseHTTPMiddleware (used by SlowAPIMiddleware) creates an asyncio
+Task for each request's call_next coroutine that stays alive until the ASGI
+app receives http.disconnect. With a session-scoped loop, these tasks
+accumulate across tests and eventually collide. Using a function-scoped loop
+and explicitly cancelling pending tasks on teardown ensures a clean slate for
+every test.
 
-Fix (part 1 — cross-loop): override event_loop to be session-scoped so that
-test_engine, db_session, and all test functions share ONE event loop.
+asyncio.set_event_loop(loop) in the fixture ensures asyncio.get_event_loop()
+returns the right loop both inside coroutines (get_running_loop) and in
+synchronous code called from within tests (asyncpg, anyio, slowapi).
 
-Fix (part 2 — concurrent-connection races): use NullPool on test_engine. With
-standard pooling, asyncpg keeps a background reader waiting for PostgreSQL's
-READY FOR QUERY message. If the pool recycles a connection before asyncpg
-receives that message, the next checkout finds the connection mid-read and raises
-"another operation is in progress". NullPool avoids this by never recycling;
-each session checkout creates a fresh asyncpg connection that is destroyed on
-close. The DeprecationWarning from overriding event_loop is suppressed by
-filterwarnings = ignore::DeprecationWarning in pytest.ini.
+Rate limiting
+-------------
+RATE_LIMITS_ENABLED=false must be set before any app import so the
+module-level Limiter singleton reads it at construction time.
 """
 import asyncio
 import os
@@ -63,32 +65,44 @@ _TEST_USER = {
 }
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def event_loop():
-    """Single asyncio event loop for the entire test session.
+    """Per-test asyncio event loop with explicit task cleanup.
 
-    Overrides the default function-scoped event_loop fixture from pytest-asyncio
-    so that test_engine (session-scoped) and all test functions share one loop.
-    Without this, session-scoped asyncpg connections created during test_engine
-    setup land on the session loop; function-scoped tests then try to reuse those
-    connections on their own function loops, which asyncpg rejects — causing the
-    DB socket to wait forever and the test to hit --timeout.
-
-    asyncio.set_event_loop(loop) is critical: without it, asyncio.get_event_loop()
-    (used by asyncpg, anyio, and Starlette's BaseHTTPMiddleware when called outside
-    a running coroutine) returns a different default loop. Futures and Tasks created
-    on that default loop cannot be awaited on the session loop, producing "Future
-    attached to a different loop" errors during fixture teardown.
+    Creates a fresh loop for every test and tears it down cleanly:
+    1. asyncio.set_event_loop(loop) — ensures asyncio.get_event_loop() returns
+       this loop even from synchronous code (asyncpg connect, anyio backend,
+       SlowAPIMiddleware) so all Futures are created on the right loop.
+    2. After yield, cancels any tasks still pending (mainly Starlette's
+       BaseHTTPMiddleware call_next task waiting for http.disconnect) and drains
+       them before closing the loop.
+    3. asyncio.set_event_loop(None) clears the thread-local loop reference so
+       the next test starts from a clean state.
     """
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     yield loop
+
+    # Cancel tasks left pending by Starlette's BaseHTTPMiddleware (SlowAPIMiddleware).
+    pending = asyncio.all_tasks(loop)
+    for task in pending:
+        task.cancel()
+    if pending:
+        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
     asyncio.set_event_loop(None)
     loop.close()
 
 
 @pytest_asyncio.fixture(scope="session")
 async def test_engine():
+    """Session-scoped engine: creates the schema once and drops it at the end.
+
+    NullPool means this fixture holds no persistent connections — it creates
+    a connection for drop_all/create_all and immediately destroys it. Function-
+    scoped fixtures that use this engine create their own fresh connections on
+    their own event loops.
+    """
     engine = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
