@@ -183,8 +183,8 @@ class TestExecutePipeline:
 
     async def test_raises_pipeline_error_when_all_queries_fail(self):
         """If all Serper queries fail, execute_pipeline raises _PipelineError."""
-        with respx.mock():
-            respx.post(SERPER_ENDPOINT).mock(
+        with respx.mock() as router:
+            router.post(SERPER_ENDPOINT).mock(
                 return_value=httpx.Response(401, json={"message": "Unauthorized"})
             )
             async with httpx.AsyncClient() as http:
@@ -319,12 +319,13 @@ class TestRunVerificationAsync:
         from uuid import UUID
         vid = await self._create_pending_result(client, auth_headers)
 
-        with respx.mock():
-            respx.post(SERPER_ENDPOINT).mock(
+        with respx.mock() as router:
+            router.post(SERPER_ENDPOINT).mock(
                 return_value=httpx.Response(401, json={"message": "Unauthorized"})
             )
-            with self._session_factory_patch(test_engine):
-                await _run_verification_async(vid)
+            with patch("anthropic.AsyncAnthropic", return_value=_mock_llm_client()):
+                with self._session_factory_patch(test_engine):
+                    await _run_verification_async(vid)
 
         await db_session.expire_all()
         result = await db_session.get(VerificationResult, UUID(vid))
@@ -353,10 +354,10 @@ class TestRunVerificationAsync:
 
         # Second run: Serper should NOT be called again
         with respx.mock() as router2:
-            router2.post(SERPER_ENDPOINT).mock(
+            serper_route = router2.post(SERPER_ENDPOINT).mock(
                 return_value=httpx.Response(200, json=_SERPER_RESPONSE)
             )
             with self._session_factory_patch(test_engine):
                 await _run_verification_async(vid)
 
-        assert router2.call_count == 0
+        assert serper_route.call_count == 0

@@ -49,5 +49,6 @@ tenacity==8.5.0          # retry logic for external API calls
 pytest==8.3.2
 pytest-asyncio==0.23.8
 pytest-cov==5.0.0
+pytest-timeout==2.3.1
 factory-boy==3.3.0
 respx==0.21.1            # mock httpx requests in tests

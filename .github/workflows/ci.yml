@@ -99,7 +99,7 @@ jobs:
             -c "CREATE DATABASE contact_verification_test;"
 
       - name: Run integration tests
-        run: pytest tests/integration/
+        run: pytest tests/integration/ --timeout=60
         env:
           SECRET_KEY: "ci-test-secret-key-32-chars-minimum-length"
           ANTHROPIC_API_KEY: "sk-ant-test"
