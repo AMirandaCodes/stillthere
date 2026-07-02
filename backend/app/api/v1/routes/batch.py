@@ -55,10 +55,12 @@ async def upload_batch(
 async def list_batch_jobs(
     pagination: PaginationDep,
     db: DbSession,
-    _: CurrentUser,
+    current_user: CurrentUser,
 ) -> PaginatedResponse[BatchJobResponse]:
     service = BatchService(db)
-    return await service.list_jobs(offset=pagination.offset, limit=pagination.page_size)
+    return await service.list_jobs(
+        offset=pagination.offset, limit=pagination.page_size, user_id=current_user.id
+    )
 
 
 @router.get(

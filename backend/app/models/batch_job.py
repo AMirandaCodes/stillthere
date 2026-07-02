@@ -1,7 +1,9 @@
+import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Integer, Enum as SAEnum, DateTime, func, Index
+from sqlalchemy import String, Integer, Enum as SAEnum, DateTime, ForeignKey, func, Index
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
@@ -10,11 +12,15 @@ from app.models.enums import BatchJobStatus
 if TYPE_CHECKING:
     from app.models.job_result import JobResult
     from app.models.search import Search
+    from app.models.user import User
 
 
 class BatchJob(BaseModel):
     __tablename__ = "batch_jobs"
 
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     filename: Mapped[str] = mapped_column(String(500), nullable=False)
     status: Mapped[BatchJobStatus] = mapped_column(
         SAEnum(BatchJobStatus, native_enum=False, length=20, values_callable=lambda x: [e.value for e in x]),
@@ -34,6 +40,7 @@ class BatchJob(BaseModel):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
+    user: Mapped["User | None"] = relationship("User")
     job_results: Mapped[list["JobResult"]] = relationship("JobResult", back_populates="batch_job")
     searches: Mapped[list["Search"]] = relationship("Search", back_populates="batch_job")
 
@@ -47,6 +54,7 @@ class BatchJob(BaseModel):
         return f"<BatchJob id={self.id} filename={self.filename!r} status={self.status}>"
 
     __table_args__ = (
+        Index("ix_batch_jobs_user_id", "user_id"),
         Index("ix_batch_jobs_status", "status"),
         Index("ix_batch_jobs_created_at", "created_at"),
     )

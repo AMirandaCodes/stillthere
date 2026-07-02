@@ -157,6 +157,7 @@ class BatchService:
             filename=file.filename or "upload.csv",
             status=BatchJobStatus.QUEUED,
             total_records=len(rows),
+            user_id=user_id,
         )
         self._session.add(batch_job)
         await self._session.flush()
@@ -254,15 +255,20 @@ class BatchService:
         return BatchJobResponse.model_validate(batch_job)
 
     async def list_jobs(
-        self, offset: int, limit: int
+        self, offset: int, limit: int, user_id: UUID | None = None
     ) -> PaginatedResponse[BatchJobResponse]:
-        total: int = await self._session.scalar(select(func.count(BatchJob.id))) or 0
-        stmt = (
+        count_stmt = select(func.count(BatchJob.id))
+        list_stmt = (
             select(BatchJob)
             .order_by(BatchJob.created_at.desc())
             .offset(offset)
             .limit(limit)
         )
+        if user_id is not None:
+            count_stmt = count_stmt.where(BatchJob.user_id == user_id)
+            list_stmt = list_stmt.where(BatchJob.user_id == user_id)
+        total: int = await self._session.scalar(count_stmt) or 0
+        stmt = list_stmt
         jobs = list((await self._session.execute(stmt)).scalars().all())
         return PaginatedResponse(
             items=[BatchJobResponse.model_validate(j) for j in jobs],
