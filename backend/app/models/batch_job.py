@@ -20,7 +20,6 @@ class BatchJob(BaseModel):
         SAEnum(BatchJobStatus, native_enum=False, length=20, values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         default=BatchJobStatus.QUEUED,
-        index=True,
     )
     total_records: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     processed_records: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

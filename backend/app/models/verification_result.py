@@ -25,7 +25,6 @@ class VerificationResult(BaseModel):
         SAEnum(VerificationStatus, native_enum=False, length=20, values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         default=VerificationStatus.PENDING,
-        index=True,
     )
 
     # --- Report fields (all default to UNCLEAR until evidence is found) -------

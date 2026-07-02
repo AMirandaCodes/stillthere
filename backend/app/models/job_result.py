@@ -34,7 +34,6 @@ class JobResult(BaseModel):
         SAEnum(JobResultStatus, native_enum=False, length=20, values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         default=JobResultStatus.SUCCESS,
-        index=True,
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Preserves the original CSV row so failed rows can be inspected and retried
