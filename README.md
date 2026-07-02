@@ -239,7 +239,10 @@ stillthere/
 │       ├── services/                # api.ts (axios + interceptors), authService,
 │       │                            #   verificationService, batchService
 │       ├── types/                   # TypeScript interfaces matching backend Pydantic schemas
+│       ├── index.css                # Global styles — Georgia font, Tailwind directives
 │       └── test-setup.ts            # Vitest + @testing-library/jest-dom bootstrap
+│   ├── postcss.config.js            # Required — wires Tailwind + Autoprefixer into Vite build
+│   ├── tailwind.config.js           # Brand colour palette (teal/dark-green) + content paths
 │   ├── vitest.config.ts
 │   ├── package.json
 │   └── Dockerfile
@@ -426,6 +429,7 @@ The application is deployed on Render's free tier:
 | 7 | ✅ Complete | Production deployment (Render) |
 | 8 | ✅ Complete | Testing suite + GitHub Actions CI |
 | 9 | ✅ Complete | Documentation |
+| 10 | ✅ Complete | Visual polish — Georgia font, teal/dark-green brand palette, centred layout |
 
 ---
 

@@ -185,3 +185,38 @@ if settings.CELERY_BROKER_URL.startswith("rediss://"):
 
 **LLM may return non-URL strings in `useful_links`.**
 `LLMAnalysisResult` has a `field_validator` on `useful_links` that strips any value not starting with `http://` or `https://` before the result is stored. The frontend also filters before rendering.
+
+---
+
+## Frontend styling
+
+### PostCSS config is required — without it Tailwind generates ~0 CSS
+
+`frontend/postcss.config.js` must exist for Vite to run Tailwind through PostCSS. Without it the `@tailwind base/components/utilities` directives in `index.css` are ignored and the production build outputs ~0.10 kB of CSS (no utility classes at all). The symptom is that style changes have zero effect on the deployed site despite a clean build. The file is:
+
+```js
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+```
+
+### Brand colour palette
+
+Defined in `frontend/tailwind.config.js` under `theme.extend.colors.brand`:
+
+| Token | Hex | Used for |
+|---|---|---|
+| `brand-50` | `#e6f6f7` | Active nav background |
+| `brand-300` | `#6ba3be` | Accents |
+| `brand-500` | `#0c959b` | Focus rings |
+| `brand-600` | `#0a7075` | Buttons, links (primary action) |
+| `brand-700` | `#274d60` | Hover states |
+| `brand-800` | `#032f30` | Deep dark |
+| `brand-900` | `#031716` | Near-black |
+
+### Global font
+
+Georgia serif is set in `frontend/src/index.css` via `@layer base { body { font-family: Georgia, serif; } }`.
