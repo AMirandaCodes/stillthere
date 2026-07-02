@@ -340,13 +340,13 @@ class TestBatchTaskOrchestration:
         # Second run — Serper must NOT be called again (assert_all_called=False because
         # the route is intentionally never hit; idempotency check is via call_count below)
         with respx.mock(assert_all_called=False) as router2:
-            router2.post(SERPER_ENDPOINT).mock(
+            serper_route = router2.post(SERPER_ENDPOINT).mock(
                 return_value=httpx.Response(200, json=_SERPER_RESPONSE)
             )
             with _session_factory_patch(test_engine):
                 await _process_batch_row_async(job_id, jr_id)
 
-        assert router2.call_count == 0
+        assert serper_route.call_count == 0
 
     async def test_failed_pipeline_sets_job_result_failed(
         self, client, auth_headers, db_session, test_engine
@@ -460,6 +460,11 @@ class TestBatchExportEndpoint:
             with patch("anthropic.AsyncAnthropic", return_value=_mock_llm_client()):
                 with _session_factory_patch(test_engine):
                     await _process_batch_row_async(job_id, jr_id)
+
+        # _increment_counters committed COMPLETE via its own session; expire S1's
+        # identity map so the export route re-fetches from DB instead of returning
+        # the stale RUNNING value that was cached before the task ran.
+        db_session.expire_all()
 
         export_r = await client.get(
             f"/api/v1/batch/{job_id}/export", headers=auth_headers
