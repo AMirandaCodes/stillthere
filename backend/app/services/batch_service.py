@@ -28,8 +28,11 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.utils import normalise_name
 from app.db.session import AsyncSessionLocal
 from app.models.batch_job import BatchJob
+from app.models.company import Company
+from app.models.contact import Contact
 from app.models.enums import BatchJobStatus, JobResultStatus, SearchSource
 from app.models.job_result import JobResult
 from app.models.search import Search
@@ -40,7 +43,7 @@ from app.repositories.verification_repository import VerificationRepository
 from app.schemas.batch import BatchJobResponse, JobResultResponse
 from app.schemas.common import PaginatedResponse
 
-from app.services.verification_service import _build_summary
+from app.services.verification_service import build_summary
 
 logger = get_logger(__name__)
 
@@ -123,7 +126,7 @@ def _build_job_result_response(jr: JobResult) -> JobResultResponse:
         status=jr.status,
         error_message=jr.error_message,
         raw_csv_row=jr.raw_csv_row or {},
-        verification=_build_summary(vr) if vr is not None and vr.search is not None else None,
+        verification=build_summary(vr) if vr is not None and vr.search is not None else None,
     )
 
 
@@ -179,6 +182,37 @@ class BatchService:
         await self._session.flush()
         await self._session.refresh(batch_job)
 
+        # ── Bulk-fetch existing contacts/companies to cut per-row DB calls ──
+        # For a 50-row CSV this reduces up to 100 individual SELECTs to 2.
+        valid_pairs = [
+            (clean(row.get("name", "")), clean(row.get("company", "")), clean(row.get("email", "")))
+            for row in rows
+        ]
+        bulk_emails = {
+            email.lower()
+            for name, company, email in valid_pairs
+            if name and company and email
+        }
+        contact_by_email: dict[str, Contact] = {}
+        if bulk_emails:
+            for c in (await self._session.execute(
+                select(Contact).where(Contact.email.in_(bulk_emails))
+            )).scalars():
+                if c.email:
+                    contact_by_email[c.email] = c
+
+        bulk_norm_companies = {
+            normalise_name(company)
+            for name, company, _ in valid_pairs
+            if name and company
+        }
+        company_by_norm: dict[str, Company] = {}
+        if bulk_norm_companies:
+            for co in (await self._session.execute(
+                select(Company).where(Company.normalized_name.in_(bulk_norm_companies))
+            )).scalars():
+                company_by_norm[co.normalized_name] = co
+
         for i, row in enumerate(rows, start=2):  # row 1 = header line
             name = clean(row.get("name", ""))
             company = clean(row.get("company", ""))
@@ -195,8 +229,22 @@ class BatchService:
                 batch_job.processed_records += 1
                 continue
 
-            contact = await self._get_or_create_contact(name, email)
-            company_obj = await self._get_or_create_company(company)
+            # Contact: use pre-fetched cache, fall back to repo on cache miss
+            if email:
+                email_key = email.lower()
+                contact = contact_by_email.get(email_key)
+                if contact is None:
+                    contact, _ = await self._contacts.get_or_create_by_email(name, email)
+                    contact_by_email[email_key] = contact
+            else:
+                contact = await self._contacts.create(name)
+
+            # Company: use pre-fetched cache, fall back to repo on cache miss
+            norm_co = normalise_name(company)
+            company_obj = company_by_norm.get(norm_co)
+            if company_obj is None:
+                company_obj, _ = await self._companies.get_or_create(company)
+                company_by_norm[norm_co] = company_obj
 
             search = await self._verifications.create_search(
                 contact_id=contact.id,
@@ -254,18 +302,6 @@ class BatchService:
                 .values(status=BatchJobStatus.FAILED)
             )
             await self._session.commit()
-
-    # ── Contact / Company dedup helpers ────────────────────────────────────────
-
-    async def _get_or_create_contact(self, full_name: str, email: str | None):
-        if email:
-            contact, _ = await self._contacts.get_or_create_by_email(full_name, email)
-            return contact
-        return await self._contacts.create(full_name)
-
-    async def _get_or_create_company(self, name: str):
-        company, _ = await self._companies.get_or_create(name)
-        return company
 
     # ── Read ───────────────────────────────────────────────────────────────────
 

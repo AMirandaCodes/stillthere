@@ -9,7 +9,7 @@ from app.repositories.contact_repository import ContactRepository
 from app.schemas.common import PaginatedResponse
 from app.schemas.contact import ContactResponse, ContactSummaryResponse
 from app.schemas.verification import VerificationSummary
-from app.services.verification_service import _build_summary
+from app.services.verification_service import build_summary
 
 router = APIRouter()
 
@@ -81,7 +81,7 @@ async def get_contact(
         latest = search.latest_result
         if latest:
             # Attach the loaded company to the search so _build_summary can read it
-            summaries.append(_build_summary(latest))
+            summaries.append(build_summary(latest))
 
     return ContactResponse(
         id=contact.id,

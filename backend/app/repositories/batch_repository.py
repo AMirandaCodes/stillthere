@@ -1,10 +1,23 @@
-"""
-BatchRepository — Phase 5 implementation.
-"""
-# TODO (Phase 5): implement
-# Methods:
-#   create_job(filename, total_records) -> BatchJob
-#   update_job_status(id, status, ...) -> BatchJob
-#   create_job_result(batch_job_id, row, verification_id?, error?) -> JobResult
-#   list_jobs(offset, limit) -> list[BatchJob]
-#   get_job_results(job_id, offset, limit) -> list[JobResult]
+from uuid import UUID
+
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.batch_job import BatchJob
+from app.models.enums import BatchJobStatus
+from app.repositories.base import BaseRepository
+
+
+class BatchRepository(BaseRepository[BatchJob]):
+    def __init__(self, session: AsyncSession) -> None:
+        super().__init__(BatchJob, session)
+
+    async def get_job(self, job_id: UUID) -> BatchJob | None:
+        return await self.session.get(BatchJob, job_id)
+
+    async def set_failed(self, job_id: UUID) -> None:
+        await self.session.execute(
+            update(BatchJob)
+            .where(BatchJob.id == job_id)
+            .values(status=BatchJobStatus.FAILED)
+        )

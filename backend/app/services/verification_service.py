@@ -36,13 +36,18 @@ logger = get_logger(__name__)
 
 # ── Private response builders ──────────────────────────────────────────────────
 
-def _build_result_response(result: VerificationResult) -> VerificationResultResponse:
+def build_result_response(result: VerificationResult) -> VerificationResultResponse:
     """
     Map a fully-loaded VerificationResult ORM object to its API response schema.
     Requires result.search, result.search.contact, result.search.company, and
     result.evidence_sources to all be eagerly loaded before calling.
     """
     search = result.search
+    if search is None or search.contact is None or search.company is None:
+        raise ValueError(
+            f"VerificationResult {result.id} passed to build_result_response "
+            "without required relations loaded"
+        )
     return VerificationResultResponse(
         id=result.id,
         search_id=result.search_id,
@@ -76,14 +81,20 @@ def _build_result_response(result: VerificationResult) -> VerificationResultResp
     )
 
 
-def _build_summary(result: VerificationResult) -> VerificationSummary:
+def build_summary(result: VerificationResult) -> VerificationSummary:
     """Lightweight summary for list views. Requires search→contact/company loaded."""
+    search = result.search
+    if search is None or search.contact is None or search.company is None:
+        raise ValueError(
+            f"VerificationResult {result.id} passed to build_summary "
+            "without required relations loaded"
+        )
     return VerificationSummary(
         id=result.id,
         search_id=result.search_id,
         status=result.status,
-        full_name=result.search.contact.full_name,
-        company_name=result.search.company.name,
+        full_name=search.contact.full_name,
+        company_name=search.company.name,
         confidence_score=result.confidence_score,
         confidence_level=result.confidence_level,
         created_at=result.created_at,
@@ -178,14 +189,14 @@ class VerificationService:
         result = await self._verifications.get_by_id_with_relations(verification_id)
         if result is None:
             return None
-        return _build_result_response(result)
+        return build_result_response(result)
 
     async def list_results(
         self, offset: int, limit: int, user_id: UUID | None = None
     ) -> PaginatedResponse[VerificationSummary]:
         results, total = await self._verifications.list_with_relations(offset, limit, user_id=user_id)
         return PaginatedResponse.build(
-            items=[_build_summary(r) for r in results],
+            items=[build_summary(r) for r in results],
             total=total,
             offset=offset,
             limit=limit,

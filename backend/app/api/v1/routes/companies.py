@@ -2,11 +2,8 @@ import math
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbSession, PaginationDep
-from app.models.search import Search
-from app.models.verification_result import VerificationResult
 from app.repositories.company_repository import CompanyRepository
 from app.schemas.common import PaginatedResponse
 from app.schemas.company import CompanyResponse
@@ -69,11 +66,7 @@ async def get_company(
             detail=f"Company {company_id} not found",
         )
 
-    total_verifications: int = await db.scalar(
-        select(func.count(VerificationResult.id))
-        .join(Search, Search.id == VerificationResult.search_id)
-        .where(Search.company_id == company_id)
-    ) or 0
+    total_verifications = await repo.get_verification_count(company_id)
 
     return CompanyResponse(
         id=company.id,

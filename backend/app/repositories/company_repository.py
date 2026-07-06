@@ -53,6 +53,13 @@ class CompanyRepository(BaseRepository[Company]):
         await self.session.flush()
         return company
 
+    async def get_verification_count(self, company_id: UUID) -> int:
+        return await self.session.scalar(
+            select(func.count(VerificationResult.id))
+            .join(Search, Search.id == VerificationResult.search_id)
+            .where(Search.company_id == company_id)
+        ) or 0
+
     # ── List ───────────────────────────────────────────────────────────────────
 
     async def list_with_verification_count(
