@@ -32,7 +32,8 @@ from app.services.confidence_service import ConfidenceService
 from app.services.evidence_service import EvidenceService
 from app.services.llm_service import LLMService
 from app.services.search_service import SearchService, SERPER_ENDPOINT
-from app.tasks.verification_tasks import execute_pipeline, _run_verification_async, _PipelineError
+from app.tasks.pipeline import execute_pipeline, _PipelineError
+from app.tasks.verification_tasks import _run_verification_async
 from httpx import AsyncClient
 from tests.helpers import make_mock_llm_client
 

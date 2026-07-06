@@ -1,5 +1,6 @@
 import axios from "axios";
 import type { PaginatedResponse } from "@/types/common";
+import { ACCESS_KEY, REFRESH_KEY } from "@/services/authService";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? "/api",
@@ -7,7 +8,7 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("stillthere_access_token");
+  const token = localStorage.getItem(ACCESS_KEY);
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -18,8 +19,8 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem("stillthere_access_token");
-      localStorage.removeItem("stillthere_refresh_token");
+      localStorage.removeItem(ACCESS_KEY);
+      localStorage.removeItem(REFRESH_KEY);
       if (window.location.pathname !== "/login") {
         window.location.href = "/login";
       }

@@ -324,13 +324,19 @@ class BatchService:
     # ── CSV export (streaming async generator) ─────────────────────────────────
 
     @staticmethod
-    async def export_csv_stream(job_id: UUID) -> AsyncGenerator[bytes, None]:
+    async def export_csv_stream(
+        job_id: UUID,
+        session_factory=None,
+    ) -> AsyncGenerator[bytes, None]:
         """
         Async generator that yields CSV bytes in pages of 100 rows.
 
         Opens its own DB session so streaming works after the route handler's
         injected session has closed (FastAPI StreamingResponse body is sent
         after the route coroutine returns).
+
+        session_factory: override AsyncSessionLocal for testing — pass an
+        asynccontextmanager-wrapped fake session to avoid touching the real DB.
         """
         _COL_HEADERS = [
             "row_number", "name", "company", "email",
@@ -350,7 +356,8 @@ class BatchService:
         buf.seek(0)
 
         offset = 0
-        async with AsyncSessionLocal() as session:
+        factory = session_factory or AsyncSessionLocal
+        async with factory() as session:
             while True:
                 stmt = (
                     select(JobResult)

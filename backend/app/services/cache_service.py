@@ -29,9 +29,9 @@ class CacheService:
 
     TTL_SEARCH_RESULTS = 1_800           # 30 minutes — search results are reusable short-term
 
-    _KEY_COMPANY_PROFILE = "stillthere:company:{}:profile"
-    _KEY_COMPANY_ACTIVE = "stillthere:company:{}:active"
-    _KEY_SEARCH_RESULTS = "stillthere:search:{}:results"
+    _KEY_COMPANY_PROFILE = "stillthere:company:{name}:profile"
+    _KEY_COMPANY_ACTIVE = "stillthere:company:{name}:active"
+    _KEY_SEARCH_RESULTS = "stillthere:search:{query_hash}:results"
 
     def __init__(self, redis: "Redis | None") -> None:
         self._redis = redis
@@ -70,7 +70,7 @@ class CacheService:
         Return cached company profile or None on a cache miss.
         Called by VerificationService before issuing a Serper search for the company.
         """
-        raw = await self.get(self._KEY_COMPANY_PROFILE.format(normalized_name))
+        raw = await self.get(self._KEY_COMPANY_PROFILE.format(name=normalized_name))
         if raw:
             try:
                 return json.loads(raw)
@@ -80,7 +80,7 @@ class CacheService:
 
     async def set_company_profile(self, normalized_name: str, profile: dict[str, Any]) -> None:
         await self.set(
-            self._KEY_COMPANY_PROFILE.format(normalized_name),
+            self._KEY_COMPANY_PROFILE.format(name=normalized_name),
             json.dumps(profile),
             self.TTL_COMPANY_PROFILE,
         )
@@ -90,11 +90,11 @@ class CacheService:
         Return cached tri-state active status ('yes'/'no'/'unclear') or None.
         Short TTL because trading status can change without warning.
         """
-        return await self.get(self._KEY_COMPANY_ACTIVE.format(normalized_name))
+        return await self.get(self._KEY_COMPANY_ACTIVE.format(name=normalized_name))
 
     async def set_company_active_status(self, normalized_name: str, status: str) -> None:
         await self.set(
-            self._KEY_COMPANY_ACTIVE.format(normalized_name),
+            self._KEY_COMPANY_ACTIVE.format(name=normalized_name),
             status,
             self.TTL_COMPANY_ACTIVE_STATUS,
         )
@@ -104,8 +104,8 @@ class CacheService:
         Purge all cached data for a company.
         Called when a fresh verification finds contradictory information.
         """
-        await self.delete(self._KEY_COMPANY_PROFILE.format(normalized_name))
-        await self.delete(self._KEY_COMPANY_ACTIVE.format(normalized_name))
+        await self.delete(self._KEY_COMPANY_PROFILE.format(name=normalized_name))
+        await self.delete(self._KEY_COMPANY_ACTIVE.format(name=normalized_name))
 
     # ── Search result helpers ─────────────────────────────────────────────────
 
@@ -115,7 +115,7 @@ class CacheService:
         The hash is the first 32 hex chars of SHA-256 of the query string
         (use SearchService.query_cache_key to generate the full key).
         """
-        raw = await self.get(self._KEY_SEARCH_RESULTS.format(query_hash))
+        raw = await self.get(self._KEY_SEARCH_RESULTS.format(query_hash=query_hash))
         if raw:
             try:
                 return json.loads(raw)
@@ -126,10 +126,10 @@ class CacheService:
     async def set_search_results(self, query_hash: str, results: dict) -> None:
         """Cache raw Serper response for 30 minutes."""
         await self.set(
-            self._KEY_SEARCH_RESULTS.format(query_hash),
+            self._KEY_SEARCH_RESULTS.format(query_hash=query_hash),
             json.dumps(results),
             self.TTL_SEARCH_RESULTS,
         )
 
     async def invalidate_search(self, query_hash: str) -> None:
-        await self.delete(self._KEY_SEARCH_RESULTS.format(query_hash))
+        await self.delete(self._KEY_SEARCH_RESULTS.format(query_hash=query_hash))

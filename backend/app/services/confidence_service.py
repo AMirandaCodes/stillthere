@@ -51,7 +51,16 @@ class ConfidenceService:
     """
     Pure computation — no I/O, no external dependencies.
     Instantiate and call score() directly in tests without any mocking.
+    Pass source_weights / level_thresholds to override the defaults.
     """
+
+    def __init__(
+        self,
+        source_weights: dict[EvidenceSourceType, int] | None = None,
+        level_thresholds: list[tuple[int, ConfidenceLevel]] | None = None,
+    ) -> None:
+        self._weights = source_weights or _SOURCE_WEIGHTS
+        self._thresholds = level_thresholds or _LEVEL_THRESHOLDS
 
     def score(
         self,
@@ -71,7 +80,7 @@ class ConfidenceService:
         total = min(100, field_score + source_score)
 
         level = next(
-            lvl for threshold, lvl in _LEVEL_THRESHOLDS if total >= threshold
+            lvl for threshold, lvl in self._thresholds if total >= threshold
         )
 
         return ConfidenceResult(
@@ -90,7 +99,6 @@ class ConfidenceService:
         determined = sum(1 for v in tri_states.values() if v != TriState.UNCLEAR)
         return determined * 10
 
-    @staticmethod
-    def _source_score(source_types: list[EvidenceSourceType]) -> int:
+    def _source_score(self, source_types: list[EvidenceSourceType]) -> int:
         """Sum source quality weights, capped at 50."""
-        return min(50, sum(_SOURCE_WEIGHTS.get(t, 3) for t in source_types))
+        return min(50, sum(self._weights.get(t, 3) for t in source_types))

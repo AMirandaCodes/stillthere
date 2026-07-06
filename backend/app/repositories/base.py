@@ -23,8 +23,11 @@ class BaseRepository(Generic[ModelT]):
         result = await self.session.execute(select(self.model).where(self.model.id == id))
         return result.scalar_one_or_none()
 
-    async def get_all(self, offset: int = 0, limit: int = 20) -> list[ModelT]:
-        result = await self.session.execute(select(self.model).offset(offset).limit(limit))
+    async def get_all(self, offset: int = 0, limit: int = 20, order_by=None) -> list[ModelT]:
+        stmt = select(self.model)
+        if order_by is not None:
+            stmt = stmt.order_by(order_by)
+        result = await self.session.execute(stmt.offset(offset).limit(limit))
         return list(result.scalars().all())
 
     async def save(self, instance: ModelT) -> ModelT:
