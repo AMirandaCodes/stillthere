@@ -73,7 +73,16 @@ class LLMAnalysisResult(BaseModel):
     def filter_invalid_urls(cls, v: Any) -> dict[str, str]:
         if not isinstance(v, dict):
             return {}
-        return {k: url for k, url in v.items() if isinstance(url, str) and url.startswith(("http://", "https://"))}
+        result = {}
+        for k, url in v.items():
+            if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+                continue
+            # LinkedIn URLs in useful_links must be personal /in/ profiles.
+            # Company pages (linkedin.com/company/...) are not a valid profile link.
+            if "linkedin.com" in url.lower() and "/in/" not in url.lower():
+                continue
+            result[k] = url
+        return result
 
     @field_validator(
         "person_found", "appears_associated", "found_on_website",
@@ -191,8 +200,8 @@ class LLMService:
                 }
             ],
             "useful_links": {
-                "LinkedIn Profile": "url if found in evidence",
-                "Company Website": "url if found in evidence",
+                "LinkedIn Profile": "linkedin.com/in/... personal profile URL — omit if only a company page was found",
+                "Company Website": "company's own website URL if found in evidence",
             },
             "reasoning": "2–3 sentences summarising the evidence and your conclusions",
         }
@@ -209,6 +218,10 @@ class LLMService:
             "  found_on_website    — this person appears on the company's own website",
             "  company_active      — the company appears to be currently trading",
             "  email_match         — the provided email is linked to this person or company",
+            "  useful_links        — only include URLs that appear in the evidence above;",
+            "                        'LinkedIn Profile' MUST be a personal profile URL (linkedin.com/in/...);",
+            "                        a company page (linkedin.com/company/...) must NEVER be used as the LinkedIn Profile;",
+            "                        include the personal profile even if the person appears to have left the company",
             "",
             "If evidence is absent or ambiguous for any field, you MUST use 'unclear'.",
             "Return ONLY the JSON object — nothing else.",

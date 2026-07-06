@@ -153,6 +153,75 @@ class TestAnalyse:
         assert result.raw_response == raw
 
 
+# ── LLMAnalysisResult.filter_invalid_urls ─────────────────────────────────────
+
+class TestLinkedInUsefulLinksFilter:
+    def test_personal_profile_url_is_kept(self):
+        result = LLMAnalysisResult(
+            useful_links={"LinkedIn Profile": "https://linkedin.com/in/jane-smith-12345"}
+        )
+        assert "LinkedIn Profile" in result.useful_links
+
+    def test_company_page_url_is_removed(self):
+        result = LLMAnalysisResult(
+            useful_links={"LinkedIn Profile": "https://linkedin.com/company/acme-corp"}
+        )
+        assert "LinkedIn Profile" not in result.useful_links
+
+    def test_generic_linkedin_url_is_removed(self):
+        result = LLMAnalysisResult(
+            useful_links={"LinkedIn": "https://www.linkedin.com/search/results/people/"}
+        )
+        assert "LinkedIn" not in result.useful_links
+
+    def test_non_linkedin_url_is_kept(self):
+        result = LLMAnalysisResult(
+            useful_links={"Company Website": "https://acme.com"}
+        )
+        assert result.useful_links["Company Website"] == "https://acme.com"
+
+    def test_non_http_url_is_removed(self):
+        result = LLMAnalysisResult(
+            useful_links={"Profile": "linkedin.com/in/jane"}  # missing https://
+        )
+        assert "Profile" not in result.useful_links
+
+    def test_mixed_links_filtered_correctly(self):
+        result = LLMAnalysisResult(
+            useful_links={
+                "LinkedIn Profile": "https://linkedin.com/in/jane-smith",
+                "Company LinkedIn": "https://linkedin.com/company/acme",
+                "Company Website": "https://acme.com",
+            }
+        )
+        assert "LinkedIn Profile" in result.useful_links
+        assert "Company LinkedIn" not in result.useful_links
+        assert "Company Website" in result.useful_links
+
+    def test_www_personal_profile_is_kept(self):
+        result = LLMAnalysisResult(
+            useful_links={"LinkedIn Profile": "https://www.linkedin.com/in/john-doe"}
+        )
+        assert "LinkedIn Profile" in result.useful_links
+
+
+@pytest.mark.asyncio
+class TestLinkedInFilterEndToEnd:
+    async def test_llm_returning_company_page_has_it_stripped(self):
+        """LLM response with a company LinkedIn page → filtered out of useful_links."""
+        bad_response = {
+            **_VALID_RESPONSE,
+            "useful_links": {
+                "LinkedIn Profile": "https://linkedin.com/company/acme-corp",
+                "Company Website": "https://acme.com",
+            },
+        }
+        svc = LLMService(api_key="k", client=_make_client(json.dumps(bad_response)))
+        result = await svc.analyse(_NAME, _COMPANY, _EMAIL, _SEARCH_RESULTS, _PAGES)
+        assert "LinkedIn Profile" not in result.useful_links
+        assert result.useful_links.get("Company Website") == "https://acme.com"
+
+
 # ── build_prompt() ─────────────────────────────────────────────────────────────
 
 class TestBuildPrompt:
@@ -190,6 +259,15 @@ class TestBuildPrompt:
         prompt = LLMService.build_prompt("X", "Y", None, SearchResults(), [])
         assert "evidence_sources" in prompt
         assert "useful_links" in prompt
+
+    def test_prompt_instructs_personal_linkedin_only(self):
+        prompt = LLMService.build_prompt("X", "Y", None, SearchResults(), [])
+        assert "linkedin.com/in/" in prompt
+        assert "linkedin.com/company/" in prompt  # mentioned as the forbidden pattern
+
+    def test_prompt_says_include_profile_even_if_left_company(self):
+        prompt = LLMService.build_prompt("X", "Y", None, SearchResults(), [])
+        assert "left the company" in prompt
 
     def test_empty_evidence_still_produces_valid_prompt(self):
         prompt = LLMService.build_prompt("X", "Y", None, SearchResults(), [])
