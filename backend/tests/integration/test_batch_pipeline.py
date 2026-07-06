@@ -15,9 +15,8 @@ External I/O is mocked identically to test_verification_pipeline.py:
   - Page fetches: respx
   - Anthropic client: AsyncMock
 """
-import json
 from io import BytesIO
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
 import httpx
@@ -36,6 +35,7 @@ from app.tasks.batch_tasks import (
     _process_batch_job_async,
     _process_batch_row_async,
 )
+from tests.helpers import make_mock_llm_client
 
 # ── Shared test fixtures ───────────────────────────────────────────────────────
 
@@ -74,12 +74,7 @@ _LLM_RESPONSE = {
 
 
 def _mock_llm_client(response: dict | None = None) -> AsyncMock:
-    data = response or _LLM_RESPONSE
-    msg = MagicMock()
-    msg.content = [MagicMock(text=json.dumps(data))]
-    client = AsyncMock()
-    client.messages.create = AsyncMock(return_value=msg)
-    return client
+    return make_mock_llm_client(response or _LLM_RESPONSE)
 
 
 def _csv_bytes(*rows: tuple[str, str, str]) -> bytes:

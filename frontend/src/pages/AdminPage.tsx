@@ -3,8 +3,7 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { adminService } from "@/services/adminService";
-import Spinner from "@/components/ui/Spinner";
-import WakeupHint from "@/components/ui/WakeupHint";
+import PageState from "@/components/ui/PageState";
 import StatusBadge from "@/components/ui/StatusBadge";
 import ConfidenceScore from "@/components/ui/ConfidenceScore";
 import Pagination from "@/components/ui/Pagination";
@@ -28,24 +27,13 @@ export default function AdminPage() {
         )}
       </div>
 
-      {isLoading && (
-        <div className="flex flex-col items-center py-20">
-          <Spinner size="lg" />
-          <WakeupHint />
-        </div>
-      )}
-
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {error instanceof Error ? error.message : "Failed to load verifications."}
-        </div>
-      )}
-
-      {data && data.items.length === 0 && (
-        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
-          <p className="text-gray-500">No verifications yet.</p>
-        </div>
-      )}
+      <PageState
+        isLoading={isLoading}
+        error={error}
+        isEmpty={!!data && data.items.length === 0}
+        errorFallback="Failed to load verifications."
+        emptySlot={<p className="text-gray-500">No verifications yet.</p>}
+      />
 
       {data && data.items.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">

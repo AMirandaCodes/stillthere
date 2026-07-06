@@ -14,6 +14,7 @@ CacheService contract — the feature degrades gracefully rather than blocking u
 from __future__ import annotations
 
 import hashlib
+import math
 from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 
@@ -79,9 +80,9 @@ class RateLimitService:
 
     def format_reset_message(self, reset_at: datetime) -> str:
         """Human-readable 'resets in Xh Ym' string based on time until reset_at."""
-        total = max(0, int((reset_at - datetime.now(tz=timezone.utc)).total_seconds()))
-        hours, remainder = divmod(total, 3600)
-        minutes = remainder // 60
+        total = max(0.0, (reset_at - datetime.now(tz=timezone.utc)).total_seconds())
+        minutes_total = math.ceil(total / 60)
+        hours, minutes = divmod(minutes_total, 60)
         if hours > 0:
             return f"resets in {hours}h {minutes}m"
         return f"resets in {minutes}m"

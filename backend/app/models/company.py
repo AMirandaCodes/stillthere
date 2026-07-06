@@ -1,9 +1,9 @@
-import re
 from typing import TYPE_CHECKING
 
 from sqlalchemy import String, Text, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
+from app.core.utils import normalise_name
 from app.models.base import BaseModel
 
 if TYPE_CHECKING:
@@ -23,8 +23,7 @@ class Company(BaseModel):
 
     @validates("name")
     def _normalise_name(self, _key: str, value: str) -> str:
-        normalised = re.sub(r"\s+", " ", value.strip().lower())
-        self.normalized_name = normalised
+        self.normalized_name = normalise_name(value)
         return value
 
     def __repr__(self) -> str:

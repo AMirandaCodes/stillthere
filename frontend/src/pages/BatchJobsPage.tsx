@@ -6,7 +6,7 @@ import { Download, PlusCircle } from "lucide-react";
 import { clsx } from "clsx";
 import { batchService } from "@/services/batchService";
 import Spinner from "@/components/ui/Spinner";
-import WakeupHint from "@/components/ui/WakeupHint";
+import PageState from "@/components/ui/PageState";
 import StatusBadge from "@/components/ui/StatusBadge";
 import Pagination from "@/components/ui/Pagination";
 import type { BatchJob } from "@/types/batch";
@@ -75,27 +75,20 @@ export default function BatchJobsPage() {
         </Link>
       </div>
 
-      {isLoading && (
-        <div className="flex flex-col items-center py-20">
-          <Spinner size="lg" />
-          <WakeupHint />
-        </div>
-      )}
-
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {error instanceof Error ? error.message : "Failed to load jobs."}
-        </div>
-      )}
-
-      {data && data.items.length === 0 && (
-        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
-          <p className="text-gray-500">No batch jobs yet.</p>
-          <Link to="/batch" className="mt-3 inline-block text-sm text-brand-600 hover:underline">
-            Upload your first CSV →
-          </Link>
-        </div>
-      )}
+      <PageState
+        isLoading={isLoading}
+        error={error}
+        isEmpty={!!data && data.items.length === 0}
+        errorFallback="Failed to load jobs."
+        emptySlot={
+          <>
+            <p className="text-gray-500">No batch jobs yet.</p>
+            <Link to="/batch" className="mt-3 inline-block text-sm text-brand-600 hover:underline">
+              Upload your first CSV →
+            </Link>
+          </>
+        }
+      />
 
       {data && data.items.length > 0 && (
         <div className="space-y-4">

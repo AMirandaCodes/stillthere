@@ -4,10 +4,12 @@ Celery task and pipeline orchestration for single-contact verification.
 Public surface (importable for tests):
   run_verification   — Celery task (sync wrapper; acks_late=True)
   execute_pipeline   — pure async pipeline (injected services, no DB)
+  run_pipeline       — convenience wrapper: wires services and calls execute_pipeline
   PipelineResult     — dataclass returned by execute_pipeline
 
 Internal:
   _run_verification_async — DB orchestrator called by run_verification
+  _apply_pipeline_result  — writes PipelineResult fields onto a VerificationResult ORM object
   _PipelineError          — raised when all search queries fail
 
 Pipeline stages:
@@ -34,10 +36,12 @@ from uuid import UUID
 
 import httpx
 from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.utils import format_exc_message
 from app.db.session import TaskSessionLocal as AsyncSessionLocal
 from app.models.enums import ConfidenceLevel, TriState, VerificationStatus
 from app.models.evidence_source import EvidenceSource
@@ -149,6 +153,56 @@ async def execute_pipeline(
     )
 
 
+# ── Shared pipeline helpers (also used by batch_tasks) ────────────────────────
+
+async def run_pipeline(name: str, company: str, email: str | None) -> PipelineResult:
+    """Wire up services and run the pipeline. Used by both single and batch tasks."""
+    settings = get_settings()
+    async with httpx.AsyncClient() as http_client:
+        return await execute_pipeline(
+            name=name,
+            company=company,
+            email=email,
+            search_service=SearchService(
+                api_key=settings.SERPER_API_KEY,
+                http_client=http_client,
+            ),
+            evidence_service=EvidenceService(http_client=http_client),
+            llm_service=LLMService(api_key=settings.ANTHROPIC_API_KEY),
+            confidence_service=ConfidenceService(),
+        )
+
+
+def _apply_pipeline_result(
+    result: VerificationResult,
+    pipeline: PipelineResult,
+    session: AsyncSession,
+    result_uuid: UUID,
+) -> None:
+    """Write all PipelineResult fields onto result and add EvidenceSource rows to session."""
+    result.status = VerificationStatus.COMPLETE
+    result.person_found = pipeline.person_found
+    result.appears_associated = pipeline.appears_associated
+    result.found_on_website = pipeline.found_on_website
+    result.company_active = pipeline.company_active
+    result.email_match = pipeline.email_match
+    result.confidence_score = pipeline.confidence_score
+    result.confidence_level = pipeline.confidence_level
+    result.useful_links = pipeline.useful_links
+    result.raw_search_data = pipeline.raw_search_data
+    for src in pipeline.evidence_sources:
+        session.add(
+            EvidenceSource(
+                verification_result_id=result_uuid,
+                url=src.url,
+                title=src.title or None,
+                snippet=None,
+                explanation=src.explanation or None,
+                source_type=src.source_type,
+            )
+        )
+
+
 # ── DB orchestrator ────────────────────────────────────────────────────────────
 
 async def _run_verification_async(result_id: str) -> None:
@@ -165,7 +219,6 @@ async def _run_verification_async(result_id: str) -> None:
     stored as status=FAILED without re-raising, so the Celery message is acked.
     """
     result_uuid = UUID(result_id)
-    settings = get_settings()
 
     # ── Phase 1: Idempotency + set RUNNING ────────────────────────────────────
     async with AsyncSessionLocal() as session:
@@ -219,21 +272,9 @@ async def _run_verification_async(result_id: str) -> None:
     error_msg: str | None = None
 
     try:
-        async with httpx.AsyncClient() as http_client:
-            pipeline_result = await execute_pipeline(
-                name=name,
-                company=company,
-                email=email,
-                search_service=SearchService(
-                    api_key=settings.SERPER_API_KEY,
-                    http_client=http_client,
-                ),
-                evidence_service=EvidenceService(http_client=http_client),
-                llm_service=LLMService(api_key=settings.ANTHROPIC_API_KEY),
-                confidence_service=ConfidenceService(),
-            )
+        pipeline_result = await run_pipeline(name, company, email)
     except Exception as exc:
-        error_msg = f"{type(exc).__name__}: {exc}"[:500]
+        error_msg = format_exc_message(exc)
         logger.error(
             "Pipeline execution failed",
             result_id=result_id,
@@ -251,28 +292,7 @@ async def _run_verification_async(result_id: str) -> None:
             result.status = VerificationStatus.FAILED
             result.error_message = error_msg
         else:
-            result.status = VerificationStatus.COMPLETE
-            result.person_found = pipeline_result.person_found
-            result.appears_associated = pipeline_result.appears_associated
-            result.found_on_website = pipeline_result.found_on_website
-            result.company_active = pipeline_result.company_active
-            result.email_match = pipeline_result.email_match
-            result.confidence_score = pipeline_result.confidence_score
-            result.confidence_level = pipeline_result.confidence_level
-            result.useful_links = pipeline_result.useful_links
-            result.raw_search_data = pipeline_result.raw_search_data
-
-            for src in pipeline_result.evidence_sources:
-                session.add(
-                    EvidenceSource(
-                        verification_result_id=result_uuid,
-                        url=src.url,
-                        title=src.title or None,
-                        snippet=None,
-                        explanation=src.explanation or None,
-                        source_type=src.source_type,
-                    )
-                )
+            _apply_pipeline_result(result, pipeline_result, session, result_uuid)
 
         await session.commit()
         logger.info(

@@ -16,8 +16,7 @@ Separate tests cover the _run_verification_async DB integration:
   - Writes results back to DB after pipeline completion
   - Idempotency guard (COMPLETE → skip, RUNNING → crash recovery)
 """
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -35,6 +34,7 @@ from app.services.llm_service import LLMService
 from app.services.search_service import SearchService, SERPER_ENDPOINT
 from app.tasks.verification_tasks import execute_pipeline, _run_verification_async, _PipelineError
 from httpx import AsyncClient
+from tests.helpers import make_mock_llm_client
 
 # ── Fixtures / shared data ─────────────────────────────────────────────────────
 
@@ -73,12 +73,7 @@ _LLM_FULL_RESPONSE = {
 
 
 def _mock_llm_client(response_dict: dict | None = None) -> AsyncMock:
-    data = response_dict or _LLM_FULL_RESPONSE
-    msg = MagicMock()
-    msg.content = [MagicMock(text=json.dumps(data))]
-    client = AsyncMock()
-    client.messages.create = AsyncMock(return_value=msg)
-    return client
+    return make_mock_llm_client(response_dict or _LLM_FULL_RESPONSE)
 
 
 # ── execute_pipeline() — pure pipeline tests ──────────────────────────────────

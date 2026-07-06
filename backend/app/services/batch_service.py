@@ -18,7 +18,6 @@ Row handling:
 """
 import csv
 import io
-import math
 from typing import AsyncGenerator
 from uuid import UUID
 
@@ -40,7 +39,8 @@ from app.repositories.company_repository import CompanyRepository
 from app.repositories.verification_repository import VerificationRepository
 from app.schemas.batch import BatchJobResponse, JobResultResponse
 from app.schemas.common import PaginatedResponse
-from app.schemas.verification import VerificationSummary
+
+from app.services.verification_service import _build_summary
 
 logger = get_logger(__name__)
 
@@ -94,25 +94,13 @@ def clean(value: str) -> str:
 def _build_job_result_response(jr: JobResult) -> JobResultResponse:
     """Build JobResultResponse from a fully-loaded JobResult ORM object."""
     vr = jr.verification_result
-    verification: VerificationSummary | None = None
-    if vr is not None and vr.search is not None:
-        verification = VerificationSummary(
-            id=vr.id,
-            search_id=vr.search_id,
-            status=vr.status,
-            full_name=vr.search.contact.full_name,
-            company_name=vr.search.company.name,
-            confidence_score=vr.confidence_score,
-            confidence_level=vr.confidence_level,
-            created_at=vr.created_at,
-        )
     return JobResultResponse(
         id=jr.id,
         row_number=jr.row_number,
         status=jr.status,
         error_message=jr.error_message,
         raw_csv_row=jr.raw_csv_row or {},
-        verification=verification,
+        verification=_build_summary(vr) if vr is not None and vr.search is not None else None,
     )
 
 
@@ -268,14 +256,12 @@ class BatchService:
             count_stmt = count_stmt.where(BatchJob.user_id == user_id)
             list_stmt = list_stmt.where(BatchJob.user_id == user_id)
         total: int = await self._session.scalar(count_stmt) or 0
-        stmt = list_stmt
-        jobs = list((await self._session.execute(stmt)).scalars().all())
-        return PaginatedResponse(
+        jobs = list((await self._session.execute(list_stmt)).scalars().all())
+        return PaginatedResponse.build(
             items=[BatchJobResponse.model_validate(j) for j in jobs],
             total=total,
-            page=(offset // limit) + 1 if limit else 1,
-            page_size=limit,
-            total_pages=math.ceil(total / limit) if total and limit else 0,
+            offset=offset,
+            limit=limit,
         )
 
     async def get_job_results(
@@ -300,12 +286,11 @@ class BatchService:
             .limit(limit)
         )
         rows = list((await self._session.execute(stmt)).scalars().all())
-        return PaginatedResponse(
+        return PaginatedResponse.build(
             items=[_build_job_result_response(jr) for jr in rows],
             total=total,
-            page=(offset // limit) + 1 if limit else 1,
-            page_size=limit,
-            total_pages=math.ceil(total / limit) if total and limit else 0,
+            offset=offset,
+            limit=limit,
         )
 
     # ── CSV export (streaming async generator) ─────────────────────────────────

@@ -1,4 +1,4 @@
-import api from "./api";
+import api, { getPaginated } from "./api";
 import type { PaginatedResponse } from "@/types/common";
 import type {
   VerificationCreateRequest,
@@ -18,10 +18,7 @@ export const verificationService = {
     return res.data;
   },
 
-  async listVerifications(page = 1, pageSize = 20): Promise<PaginatedResponse<VerificationSummary>> {
-    const res = await api.get<PaginatedResponse<VerificationSummary>>("/v1/verifications", {
-      params: { page, page_size: pageSize },
-    });
-    return res.data;
+  listVerifications(page = 1, pageSize = 20): Promise<PaginatedResponse<VerificationSummary>> {
+    return getPaginated<VerificationSummary>("/v1/verifications", page, pageSize);
   },
 };

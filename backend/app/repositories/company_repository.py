@@ -1,18 +1,13 @@
-import re
 from uuid import UUID
 
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.utils import normalise_name
 from app.models.company import Company
 from app.models.search import Search
 from app.models.verification_result import VerificationResult
 from app.repositories.base import BaseRepository
-
-
-def _normalise(name: str) -> str:
-    return re.sub(r"\s+", " ", name.strip().lower())
 
 
 class CompanyRepository(BaseRepository[Company]):
@@ -34,18 +29,11 @@ class CompanyRepository(BaseRepository[Company]):
         Dedup on normalised name.
         Returns (company, was_created).
         """
-        normalised = _normalise(name)
-        existing = await self.get_by_normalized_name(normalised)
-        if existing:
-            return existing, False
-
-        company = Company(name=name)
-        try:
-            return await self.save(company), True
-        except IntegrityError:
-            await self.session.rollback()
-            existing = await self.get_by_normalized_name(normalised)
-            return existing, False  # type: ignore[return-value]
+        normalised = normalise_name(name)
+        return await self._get_or_create(
+            fetch=lambda: self.get_by_normalized_name(normalised),
+            build=lambda: Company(name=name),
+        )
 
     async def update_web_info(
         self, company_id: UUID, website: str | None, domain: str | None
@@ -81,7 +69,3 @@ class CompanyRepository(BaseRepository[Company]):
         )
         rows = await self.session.execute(stmt)
         return [(co, cnt) for co, cnt in rows.all()]
-
-    async def count(self) -> int:
-        result = await self.session.execute(select(func.count(Company.id)))
-        return result.scalar_one()

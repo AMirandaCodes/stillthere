@@ -1,7 +1,6 @@
 from uuid import UUID
 
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -40,17 +39,11 @@ class ContactRepository(BaseRepository[Contact]):
         Handles the race condition where two concurrent requests try to create
         the same contact by catching IntegrityError and re-fetching.
         """
-        existing = await self.get_by_email(email)
-        if existing:
-            return existing, False
-
-        contact = Contact(full_name=full_name, email=email.lower().strip())
-        try:
-            return await self.save(contact), True
-        except IntegrityError:
-            await self.session.rollback()
-            existing = await self.get_by_email(email)
-            return existing, False  # type: ignore[return-value]
+        email_lower = email.lower().strip()
+        return await self._get_or_create(
+            fetch=lambda: self.get_by_email(email_lower),
+            build=lambda: Contact(full_name=full_name, email=email_lower),
+        )
 
     async def create(self, full_name: str, email: str | None = None) -> Contact:
         """Create a contact without dedup (used when no email is provided)."""
@@ -105,10 +98,6 @@ class ContactRepository(BaseRepository[Contact]):
         )
         rows = await self.session.execute(stmt)
         return [(c, cnt) for c, cnt in rows.all()], total or 0
-
-    async def count(self) -> int:
-        result = await self.session.execute(select(func.count(Contact.id)))
-        return result.scalar_one()
 
     # ── Detail (with recent verifications) ────────────────────────────────────
 

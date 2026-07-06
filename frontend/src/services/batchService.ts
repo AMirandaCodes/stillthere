@@ -1,4 +1,4 @@
-import api from "./api";
+import api, { getPaginated } from "./api";
 import type { PaginatedResponse } from "@/types/common";
 import type { BatchJob, JobResult } from "@/types/batch";
 
@@ -17,18 +17,12 @@ export const batchService = {
     return res.data;
   },
 
-  async listJobs(page = 1, pageSize = 20): Promise<PaginatedResponse<BatchJob>> {
-    const res = await api.get<PaginatedResponse<BatchJob>>("/v1/batch", {
-      params: { page, page_size: pageSize },
-    });
-    return res.data;
+  listJobs(page = 1, pageSize = 20): Promise<PaginatedResponse<BatchJob>> {
+    return getPaginated<BatchJob>("/v1/batch", page, pageSize);
   },
 
-  async getJobResults(jobId: string, page = 1, pageSize = 50): Promise<PaginatedResponse<JobResult>> {
-    const res = await api.get<PaginatedResponse<JobResult>>(`/v1/batch/${jobId}/results`, {
-      params: { page, page_size: pageSize },
-    });
-    return res.data;
+  getJobResults(jobId: string, page = 1, pageSize = 50): Promise<PaginatedResponse<JobResult>> {
+    return getPaginated<JobResult>(`/v1/batch/${jobId}/results`, page, pageSize);
   },
 
   async exportCsv(jobId: string): Promise<void> {

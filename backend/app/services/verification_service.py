@@ -10,7 +10,6 @@ Responsibilities:
 
 Intentionally knows nothing about HTTP: no FastAPI imports, no Request objects.
 """
-import math
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -184,10 +183,9 @@ class VerificationService:
         self, offset: int, limit: int, user_id: UUID | None = None
     ) -> PaginatedResponse[VerificationSummary]:
         results, total = await self._verifications.list_with_relations(offset, limit, user_id=user_id)
-        return PaginatedResponse(
+        return PaginatedResponse.build(
             items=[_build_summary(r) for r in results],
             total=total,
-            page=(offset // limit) + 1 if limit else 1,
-            page_size=limit,
-            total_pages=math.ceil(total / limit) if total and limit else 0,
+            offset=offset,
+            limit=limit,
         )

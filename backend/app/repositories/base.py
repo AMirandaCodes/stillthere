@@ -2,10 +2,11 @@
 Generic repository base class.
 Concrete repositories extend this and add domain-specific query methods.
 """
-from typing import Generic, TypeVar, Type
+from typing import Awaitable, Callable, Generic, Type, TypeVar
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.base import BaseModel
@@ -35,3 +36,27 @@ class BaseRepository(Generic[ModelT]):
     async def delete(self, instance: ModelT) -> None:
         await self.session.delete(instance)
         await self.session.flush()
+
+    async def count(self) -> int:
+        result = await self.session.execute(select(func.count(self.model.id)))
+        return result.scalar_one()
+
+    async def _get_or_create(
+        self,
+        fetch: Callable[[], Awaitable[ModelT | None]],
+        build: Callable[[], ModelT],
+    ) -> tuple[ModelT, bool]:
+        """
+        Fetch an existing record or create a new one, handling concurrent
+        creation races via IntegrityError retry.
+        Returns (instance, was_created).
+        """
+        existing = await fetch()
+        if existing:
+            return existing, False
+        try:
+            return await self.save(build()), True
+        except IntegrityError:
+            await self.session.rollback()
+            existing = await fetch()
+            return existing, False  # type: ignore[return-value]

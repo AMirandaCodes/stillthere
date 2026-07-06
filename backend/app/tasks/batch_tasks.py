@@ -25,8 +25,8 @@ Design:
     1. Idempotency: status != PENDING → return
     2. Handle VerificationResult crash-recovery (RUNNING → delete partial evidence)
     3. Load pipeline inputs from DB
-    4. Run execute_pipeline() (same pure function used by single verifications)
-    5. Write VerificationResult + JobResult
+    4. Run run_pipeline() (same function used by single verifications)
+    5. Write VerificationResult + JobResult via _apply_pipeline_result
     6. Atomically increment BatchJob counters; set COMPLETE when done
 
   rate_limit="10/m" on process_batch_row throttles Serper and Anthropic API calls
@@ -37,12 +37,11 @@ import traceback
 from datetime import datetime, timezone
 from uuid import UUID
 
-import httpx
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import selectinload
 
-from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.utils import format_exc_message
 from app.db.session import TaskSessionLocal as AsyncSessionLocal
 from app.models.batch_job import BatchJob
 from app.models.enums import (
@@ -54,12 +53,8 @@ from app.models.evidence_source import EvidenceSource
 from app.models.job_result import JobResult
 from app.models.search import Search
 from app.models.verification_result import VerificationResult
-from app.services.confidence_service import ConfidenceService
-from app.services.evidence_service import EvidenceService
-from app.services.llm_service import LLMService
-from app.services.search_service import SearchService
 from app.tasks.celery_app import celery_app
-from app.tasks.verification_tasks import execute_pipeline
+from app.tasks.verification_tasks import _apply_pipeline_result, run_pipeline
 
 logger = get_logger(__name__)
 
@@ -131,7 +126,6 @@ def process_batch_job(self, batch_job_id: str) -> None:
 async def _process_batch_row_async(batch_job_id: str, job_result_id: str) -> None:
     result_uuid = UUID(job_result_id)
     job_uuid = UUID(batch_job_id)
-    settings = get_settings()
 
     # Session 1: Idempotency + crash-recovery for VerificationResult
     async with AsyncSessionLocal() as session:
@@ -209,21 +203,9 @@ async def _process_batch_row_async(batch_job_id: str, job_result_id: str) -> Non
     error_msg: str | None = None
 
     try:
-        async with httpx.AsyncClient() as http_client:
-            pipeline_result = await execute_pipeline(
-                name=name,
-                company=company,
-                email=email,
-                search_service=SearchService(
-                    api_key=settings.SERPER_API_KEY,
-                    http_client=http_client,
-                ),
-                evidence_service=EvidenceService(http_client=http_client),
-                llm_service=LLMService(api_key=settings.ANTHROPIC_API_KEY),
-                confidence_service=ConfidenceService(),
-            )
+        pipeline_result = await run_pipeline(name, company, email)
     except Exception as exc:
-        error_msg = f"{type(exc).__name__}: {exc}"[:500]
+        error_msg = format_exc_message(exc)
         logger.error(
             "Batch row pipeline failed",
             job_result_id=job_result_id,
@@ -247,27 +229,7 @@ async def _process_batch_row_async(batch_job_id: str, job_result_id: str) -> Non
             jr.status = JobResultStatus.FAILED
             jr.error_message = error_msg
         else:
-            ver.status = VerificationStatus.COMPLETE
-            ver.person_found = pipeline_result.person_found
-            ver.appears_associated = pipeline_result.appears_associated
-            ver.found_on_website = pipeline_result.found_on_website
-            ver.company_active = pipeline_result.company_active
-            ver.email_match = pipeline_result.email_match
-            ver.confidence_score = pipeline_result.confidence_score
-            ver.confidence_level = pipeline_result.confidence_level
-            ver.useful_links = pipeline_result.useful_links
-            ver.raw_search_data = pipeline_result.raw_search_data
-
-            for src in pipeline_result.evidence_sources:
-                session.add(EvidenceSource(
-                    verification_result_id=ver_id,
-                    url=src.url,
-                    title=src.title or None,
-                    snippet=None,
-                    explanation=src.explanation or None,
-                    source_type=src.source_type,
-                ))
-
+            _apply_pipeline_result(ver, pipeline_result, session, ver_id)
             jr.status = JobResultStatus.SUCCESS
             unclear = pipeline_result.confidence_score == 0
 

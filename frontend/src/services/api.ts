@@ -1,4 +1,5 @@
 import axios from "axios";
+import type { PaginatedResponse } from "@/types/common";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? "/api",
@@ -30,5 +31,16 @@ api.interceptors.response.use(
     return Promise.reject(new Error(String(message)));
   }
 );
+
+export async function getPaginated<T>(
+  path: string,
+  page: number,
+  pageSize = 20,
+): Promise<PaginatedResponse<T>> {
+  const res = await api.get<PaginatedResponse<T>>(path, {
+    params: { page, page_size: pageSize },
+  });
+  return res.data;
+}
 
 export default api;
