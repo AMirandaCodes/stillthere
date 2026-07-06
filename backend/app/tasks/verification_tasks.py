@@ -203,6 +203,38 @@ def _apply_pipeline_result(
         )
 
 
+# ── DB orchestrator helpers ────────────────────────────────────────────────────
+
+async def _check_and_set_running(result_uuid: UUID, result_id: str) -> bool:
+    """
+    Idempotency guard + RUNNING transition for a single verification.
+
+    Returns False if the task should be skipped (result not found or already terminal).
+    Handles crash recovery: if status is RUNNING, deletes partial evidence and restarts.
+    """
+    async with AsyncSessionLocal() as session:
+        result = await session.get(VerificationResult, result_uuid)
+        if result is None:
+            logger.error("VerificationResult not found — aborting", result_id=result_id)
+            return False
+
+        if result.status in (VerificationStatus.COMPLETE, VerificationStatus.FAILED):
+            logger.info("Already terminal — skipping", result_id=result_id, status=result.status)
+            return False
+
+        if result.status == VerificationStatus.RUNNING:
+            await session.execute(
+                delete(EvidenceSource).where(
+                    EvidenceSource.verification_result_id == result_uuid
+                )
+            )
+            logger.info("Crash recovery: cleared partial evidence", result_id=result_id)
+
+        result.status = VerificationStatus.RUNNING
+        await session.commit()
+    return True
+
+
 # ── DB orchestrator ────────────────────────────────────────────────────────────
 
 async def _run_verification_async(result_id: str) -> None:
@@ -221,31 +253,8 @@ async def _run_verification_async(result_id: str) -> None:
     result_uuid = UUID(result_id)
 
     # ── Phase 1: Idempotency + set RUNNING ────────────────────────────────────
-    async with AsyncSessionLocal() as session:
-        result = await session.get(VerificationResult, result_uuid)
-        if result is None:
-            logger.error("VerificationResult not found — aborting", result_id=result_id)
-            return
-
-        if result.status == VerificationStatus.COMPLETE:
-            logger.info("Already complete — skipping", result_id=result_id)
-            return
-        if result.status == VerificationStatus.FAILED:
-            logger.info("Already failed — skipping", result_id=result_id)
-            return
-
-        # RUNNING = crash recovery or service set it before task started:
-        # delete any partial evidence and restart cleanly.
-        if result.status == VerificationStatus.RUNNING:
-            await session.execute(
-                delete(EvidenceSource).where(
-                    EvidenceSource.verification_result_id == result_uuid
-                )
-            )
-            logger.info("Crash recovery: cleared partial evidence", result_id=result_id)
-
-        result.status = VerificationStatus.RUNNING
-        await session.commit()
+    if not await _check_and_set_running(result_uuid, result_id):
+        return
 
     # ── Phase 2: Load search context (read-only) ──────────────────────────────
     async with AsyncSessionLocal() as session:

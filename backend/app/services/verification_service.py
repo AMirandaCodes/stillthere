@@ -22,6 +22,7 @@ from app.repositories.company_repository import CompanyRepository
 from app.repositories.verification_repository import VerificationRepository
 from app.schemas.common import PaginatedResponse
 from app.schemas.verification import (
+    AdminVerificationSummary,
     EvidenceSourceResponse,
     VerificationCreate,
     VerificationJobResponse,
@@ -189,3 +190,25 @@ class VerificationService:
             offset=offset,
             limit=limit,
         )
+
+    async def list_all_results(
+        self, offset: int, limit: int
+    ) -> PaginatedResponse[AdminVerificationSummary]:
+        """Admin-only: paginated list of every verification across all users."""
+        results, total = await self._verifications.list_all_with_user(offset, limit)
+        items = [
+            AdminVerificationSummary(
+                id=r.id,
+                search_id=r.search_id,
+                status=r.status,
+                full_name=r.search.contact.full_name,
+                company_name=r.search.company.name,
+                work_email=r.search.submitted_email,
+                user_email=r.search.user.email if r.search.user else None,
+                confidence_score=r.confidence_score,
+                confidence_level=r.confidence_level,
+                created_at=r.created_at,
+            )
+            for r in results
+        ]
+        return PaginatedResponse.build(items=items, total=total, offset=offset, limit=limit)

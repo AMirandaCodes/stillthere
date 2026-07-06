@@ -28,6 +28,27 @@ logger = get_logger(__name__)
 _DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 _MAX_TOKENS = 1_024
 
+_PROMPT_SCHEMA = {
+    "person_found": "yes | no | unclear",
+    "appears_associated": "yes | no | unclear",
+    "found_on_website": "yes | no | unclear",
+    "company_active": "yes | no | unclear",
+    "email_match": "yes | no | unclear",
+    "evidence_sources": [
+        {
+            "url": "url from the evidence above",
+            "title": "page title",
+            "source_type": "search_result | company_website | professional_profile | business_directory | other",
+            "explanation": "one sentence: what this source shows about the contact",
+        }
+    ],
+    "useful_links": {
+        "LinkedIn Profile": "linkedin.com/in/... personal profile URL — omit if only a company page was found",
+        "Company Website": "company's own website URL if found in evidence",
+    },
+    "reasoning": "2–3 sentences summarising the evidence and your conclusions",
+}
+
 _SYSTEM_PROMPT = """\
 You are an evidence analyst for a contact verification system.
 
@@ -165,52 +186,12 @@ class LLMService:
             "",
             "== EVIDENCE ==",
             "",
-        ]
-
-        for hit in search_results.hits[:15]:
-            lines += [
-                f"[Search result — {hit.query_type}]",
-                f"Title: {hit.title}",
-                f"URL: {hit.url}",
-                f"Snippet: {hit.snippet}",
-                "",
-            ]
-
-        for page in pages:
-            if page.fetch_ok and page.text:
-                lines += [
-                    f"[Page content from {page.url}]",
-                    f"Title: {page.title}",
-                    page.text[:3_000],
-                    "",
-                ]
-
-        schema_example = {
-            "person_found": "yes | no | unclear",
-            "appears_associated": "yes | no | unclear",
-            "found_on_website": "yes | no | unclear",
-            "company_active": "yes | no | unclear",
-            "email_match": "yes | no | unclear",
-            "evidence_sources": [
-                {
-                    "url": "url from the evidence above",
-                    "title": "page title",
-                    "source_type": "search_result | company_website | professional_profile | business_directory | other",
-                    "explanation": "one sentence: what this source shows about the contact",
-                }
-            ],
-            "useful_links": {
-                "LinkedIn Profile": "linkedin.com/in/... personal profile URL — omit if only a company page was found",
-                "Company Website": "company's own website URL if found in evidence",
-            },
-            "reasoning": "2–3 sentences summarising the evidence and your conclusions",
-        }
-
-        lines += [
+            *LLMService._format_search_evidence(search_results),
+            *LLMService._format_page_evidence(pages),
             "== TASK ==",
             "",
             "Based ONLY on the evidence above, return a JSON object with this exact structure:",
-            json.dumps(schema_example, indent=2),
+            json.dumps(_PROMPT_SCHEMA, indent=2),
             "",
             "Field definitions:",
             "  person_found        — evidence that this named person exists as a real individual",
@@ -228,6 +209,32 @@ class LLMService:
         ]
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _format_search_evidence(search_results: SearchResults) -> list[str]:
+        lines: list[str] = []
+        for hit in search_results.hits[:15]:
+            lines += [
+                f"[Search result — {hit.query_type}]",
+                f"Title: {hit.title}",
+                f"URL: {hit.url}",
+                f"Snippet: {hit.snippet}",
+                "",
+            ]
+        return lines
+
+    @staticmethod
+    def _format_page_evidence(pages: list[PageContent]) -> list[str]:
+        lines: list[str] = []
+        for page in pages:
+            if page.fetch_ok and page.text:
+                lines += [
+                    f"[Page content from {page.url}]",
+                    f"Title: {page.title}",
+                    page.text[:3_000],
+                    "",
+                ]
+        return lines
 
     @staticmethod
     def _parse_response(raw: str) -> LLMAnalysisResult:

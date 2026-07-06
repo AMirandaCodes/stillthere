@@ -8,7 +8,6 @@ Routes (all under /api/v1/batch via main.py prefix):
   GET   /{job_id}/results Paginated per-row results
   GET   /{job_id}/export  Stream results as CSV download (job must be complete)
 """
-import math
 from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status

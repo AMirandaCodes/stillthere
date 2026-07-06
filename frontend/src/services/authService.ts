@@ -9,6 +9,10 @@ export const authService = {
     return localStorage.getItem(ACCESS_KEY);
   },
 
+  getRefreshToken(): string | null {
+    return localStorage.getItem(REFRESH_KEY);
+  },
+
   setTokens(tokens: TokenResponse): void {
     localStorage.setItem(ACCESS_KEY, tokens.access_token);
     localStorage.setItem(REFRESH_KEY, tokens.refresh_token);

@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.logging import get_logger
@@ -57,6 +58,34 @@ from app.tasks.celery_app import celery_app
 from app.tasks.verification_tasks import _apply_pipeline_result, run_pipeline
 
 logger = get_logger(__name__)
+
+
+# ── Row-level helpers ──────────────────────────────────────────────────────────
+
+async def _clear_partial_evidence(session: AsyncSession, ver: VerificationResult) -> None:
+    """Crash recovery: delete any evidence written before the worker died."""
+    await session.execute(
+        delete(EvidenceSource).where(EvidenceSource.verification_result_id == ver.id)
+    )
+    logger.info(
+        "Crash recovery: cleared partial evidence",
+        verification_result_id=str(ver.id),
+    )
+
+
+async def _reconcile_already_complete(
+    session: AsyncSession,
+    jr: JobResult,
+    ver: VerificationResult,
+    job_uuid: UUID,
+) -> None:
+    """
+    Pipeline completed on a prior attempt but the JobResult update was lost.
+    Reconcile by marking SUCCESS and incrementing counters now.
+    """
+    jr.status = JobResultStatus.SUCCESS
+    await session.commit()
+    await _increment_counters(job_uuid, failed=False, unclear=(ver.confidence_score == 0))
 
 
 # ── process_batch_job ──────────────────────────────────────────────────────────
@@ -154,24 +183,12 @@ async def _process_batch_row_async(batch_job_id: str, job_result_id: str) -> Non
             return
 
         if ver.status == VerificationStatus.COMPLETE:
-            # Pipeline completed on a prior attempt; job_result update failed — reconcile now.
-            jr.status = JobResultStatus.SUCCESS
-            await session.commit()
-            await _increment_counters(job_uuid, failed=False, unclear=(ver.confidence_score == 0))
+            await _reconcile_already_complete(session, jr, ver, job_uuid)
             return
 
         if ver.status == VerificationStatus.RUNNING:
-            # Crash recovery: delete partial evidence and restart from scratch.
-            await session.execute(
-                delete(EvidenceSource).where(
-                    EvidenceSource.verification_result_id == ver.id
-                )
-            )
-            logger.info(
-                "Crash recovery: cleared partial evidence",
-                job_result_id=job_result_id,
-                verification_result_id=str(ver.id),
-            )
+            await _clear_partial_evidence(session, ver)
+            logger.info("Crash recovery triggered", job_result_id=job_result_id)
 
         ver.status = VerificationStatus.RUNNING
         await session.commit()

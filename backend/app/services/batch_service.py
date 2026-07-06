@@ -89,6 +89,29 @@ def clean(value: str) -> str:
     return value.strip()
 
 
+# ── CSV row builder ───────────────────────────────────────────────────────────
+
+def _csv_row(jr: JobResult) -> list:
+    """Build one CSV row from a fully-loaded JobResult."""
+    raw = jr.raw_csv_row or {}
+    vr = jr.verification_result
+    return [
+        jr.row_number,
+        raw.get("name", ""),
+        raw.get("company", ""),
+        raw.get("email", ""),
+        jr.status.value,
+        vr.person_found.value       if vr else "",
+        vr.appears_associated.value if vr else "",
+        vr.found_on_website.value   if vr else "",
+        vr.company_active.value     if vr else "",
+        vr.email_match.value        if vr else "",
+        vr.confidence_score         if vr else "",
+        vr.confidence_level.value   if vr else "",
+        jr.error_message or (vr.error_message if vr else "") or "",
+    ]
+
+
 # ── Response builder ───────────────────────────────────────────────────────────
 
 def _build_job_result_response(jr: JobResult) -> JobResultResponse:
@@ -192,6 +215,14 @@ class BatchService:
         await self._session.commit()
 
         # Dispatch after commit so the worker can always read the records
+        await self._dispatch_job(batch_job)
+        await self._session.refresh(batch_job)
+        return BatchJobResponse.model_validate(batch_job)
+
+    # ── Task dispatch ──────────────────────────────────────────────────────────
+
+    async def _dispatch_job(self, batch_job: BatchJob) -> None:
+        """Dispatch the Celery task and store task_id; mark FAILED if dispatch fails."""
         from app.tasks.batch_tasks import process_batch_job
         try:
             task = process_batch_job.delay(str(batch_job.id))
@@ -218,9 +249,6 @@ class BatchService:
                 .values(status=BatchJobStatus.FAILED)
             )
             await self._session.commit()
-
-        await self._session.refresh(batch_job)
-        return BatchJobResponse.model_validate(batch_job)
 
     # ── Contact / Company dedup helpers ────────────────────────────────────────
 
@@ -344,23 +372,7 @@ class BatchService:
                     break
 
                 for jr in page_rows:
-                    raw = jr.raw_csv_row or {}
-                    vr = jr.verification_result
-                    writer.writerow([
-                        jr.row_number,
-                        raw.get("name", ""),
-                        raw.get("company", ""),
-                        raw.get("email", ""),
-                        jr.status.value,
-                        vr.person_found.value if vr else "",
-                        vr.appears_associated.value if vr else "",
-                        vr.found_on_website.value if vr else "",
-                        vr.company_active.value if vr else "",
-                        vr.email_match.value if vr else "",
-                        vr.confidence_score if vr else "",
-                        vr.confidence_level.value if vr else "",
-                        jr.error_message or (vr.error_message if vr else "") or "",
-                    ])
+                    writer.writerow(_csv_row(jr))
 
                 yield buf.getvalue().encode()
                 buf.truncate(0)

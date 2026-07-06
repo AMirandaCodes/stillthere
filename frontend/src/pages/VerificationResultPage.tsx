@@ -11,7 +11,8 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import ConfidenceScore from "@/components/ui/ConfidenceScore";
 import type { TriState } from "@/types/verification";
 
-const triStateRows: { key: keyof { person_found: TriState; appears_associated: TriState; found_on_website: TriState; company_active: TriState; email_match: TriState }; label: string }[] = [
+type TriStateKey = "person_found" | "appears_associated" | "found_on_website" | "company_active" | "email_match";
+const triStateRows: { key: TriStateKey; label: string }[] = [
   { key: "person_found",       label: "Person found online" },
   { key: "appears_associated", label: "Appears associated with company" },
   { key: "found_on_website",   label: "Found on company website" },
@@ -168,15 +169,15 @@ export default function VerificationResultPage() {
           )}
 
           {/* Useful links */}
-          {(() => {
-            const validLinks = Object.entries(data.useful_links).filter(
-              ([, url]) => typeof url === "string" && /^https?:\/\//i.test(url)
-            );
-            return validLinks.length > 0 ? (
-              <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-                <h2 className="mb-4 font-semibold text-gray-800">Useful Links</h2>
-                <ul className="space-y-2">
-                  {validLinks.map(([label, url]) => (
+          {Object.entries(data.useful_links).filter(
+            ([, url]) => typeof url === "string" && /^https?:\/\//i.test(url)
+          ).length > 0 && (
+            <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+              <h2 className="mb-4 font-semibold text-gray-800">Useful Links</h2>
+              <ul className="space-y-2">
+                {Object.entries(data.useful_links)
+                  .filter(([, url]) => typeof url === "string" && /^https?:\/\//i.test(url))
+                  .map(([label, url]) => (
                     <li key={label}>
                       <a
                         href={url}
@@ -189,10 +190,9 @@ export default function VerificationResultPage() {
                       </a>
                     </li>
                   ))}
-                </ul>
-              </div>
-            ) : null;
-          })()}
+              </ul>
+            </div>
+          )}
         </>
       )}
     </div>
