@@ -1,11 +1,14 @@
 from contextlib import asynccontextmanager
+import uuid
 
 import redis.asyncio as aioredis
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.v1.routes import admin, auth, batch, companies, contacts, health, verifications
 from app.core.config import get_settings
@@ -68,6 +71,21 @@ app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 
 
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        req_id = uuid.uuid4().hex[:8]
+        structlog.contextvars.bind_contextvars(request_id=req_id)
+        try:
+            response = await call_next(request)
+        finally:
+            structlog.contextvars.unbind_contextvars("request_id")
+        response.headers["X-Request-ID"] = req_id
+        return response
+
+
+app.add_middleware(RequestIDMiddleware)
+
+
 # ── Global exception handlers ──────────────────────────────────────────────────
 
 @app.exception_handler(RateLimitExceeded)
@@ -80,10 +98,14 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRe
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    req_id = structlog.contextvars.get_contextvars().get("request_id", "unknown")
     logger.error("Unhandled exception", path=request.url.path, error=str(exc), exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={"detail": "An internal error occurred. Please try again later."},
+        content={
+            "detail": "An internal error occurred. Please try again later.",
+            "request_id": req_id,
+        },
     )
 
 

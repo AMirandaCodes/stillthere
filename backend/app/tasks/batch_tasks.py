@@ -42,7 +42,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.logging import get_logger
-from app.core.utils import format_exc_message
 from app.db.session import TaskSessionLocal as AsyncSessionLocal
 from app.models.batch_job import BatchJob
 from app.models.enums import (
@@ -55,9 +54,15 @@ from app.models.job_result import JobResult
 from app.models.search import Search
 from app.models.verification_result import VerificationResult
 from app.tasks.celery_app import celery_app
-from app.tasks.pipeline import _apply_pipeline_result, run_pipeline
+from app.tasks.pipeline import _PipelineError, _apply_pipeline_result, run_pipeline
 
 logger = get_logger(__name__)
+
+
+def _user_error_message(exc: Exception) -> str:
+    if isinstance(exc, _PipelineError):
+        return "Search failed. The service may be temporarily unavailable — please try again."
+    return "An unexpected error occurred during verification."
 
 
 # ── Row-level helpers ──────────────────────────────────────────────────────────
@@ -222,11 +227,12 @@ async def _process_batch_row_async(batch_job_id: str, job_result_id: str) -> Non
     try:
         pipeline_result = await run_pipeline(name, company, email)
     except Exception as exc:
-        error_msg = format_exc_message(exc)
+        error_msg = _user_error_message(exc)
         logger.error(
             "Batch row pipeline failed",
             job_result_id=job_result_id,
-            error=error_msg,
+            exc_type=type(exc).__name__,
+            error=str(exc),
             traceback=traceback.format_exc(),
         )
 

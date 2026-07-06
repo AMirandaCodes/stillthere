@@ -41,7 +41,15 @@ async def get_current_user(
     if not user_id_str:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Malformed token")
 
-    user = await UserRepository(db).get_by_id(UUID(user_id_str))
+    try:
+        user_id = UUID(user_id_str)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Malformed token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    user = await UserRepository(db).get_by_id(user_id)
     if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive"

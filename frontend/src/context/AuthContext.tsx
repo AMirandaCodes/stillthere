@@ -25,7 +25,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     authService
       .getMe()
       .then(setUser)
-      .catch(() => authService.clearTokens())
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message.toLowerCase() : "";
+        if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("not authenticated")) {
+          authService.clearTokens();
+        }
+      })
       .finally(() => setIsLoading(false));
   }, []);
 

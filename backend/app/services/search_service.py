@@ -49,7 +49,7 @@ class SearchProvider(Protocol):
 
 def _is_retriable(exc: BaseException) -> bool:
     if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code >= 500
+        return exc.response.status_code == 429 or exc.response.status_code >= 500
     return isinstance(exc, (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError))
 
 
@@ -169,7 +169,7 @@ class SearchService:
     @retry(
         retry=retry_if_exception(_is_retriable),
         stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
+        wait=wait_exponential(multiplier=2, min=5, max=60),
         reraise=True,
     )
     async def _fetch_query(self, query_text: str) -> dict[str, Any]:

@@ -37,6 +37,7 @@ function ProgressBar({ job }: { job: BatchJob }) {
 export default function BatchJobsPage() {
   const [page, setPage] = useState(1);
   const [exporting, setExporting] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const location = useLocation();
   const highlightId: string | undefined = (location.state as { highlightId?: string })?.highlightId;
 
@@ -51,8 +52,11 @@ export default function BatchJobsPage() {
 
   async function handleExport(jobId: string) {
     setExporting(jobId);
+    setExportError(null);
     try {
       await batchService.exportCsv(jobId);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : "Export failed. Please try again.");
     } finally {
       setExporting(null);
     }
@@ -74,6 +78,12 @@ export default function BatchJobsPage() {
           <PlusCircle className="h-4 w-4" /> New upload
         </Link>
       </div>
+
+      {exportError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {exportError}
+        </div>
+      )}
 
       <PageState
         isLoading={isLoading}

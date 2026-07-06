@@ -27,16 +27,21 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
 from app.core.logging import get_logger
-from app.core.utils import format_exc_message
 from app.db.session import TaskSessionLocal as AsyncSessionLocal
 from app.models.enums import VerificationStatus
 from app.models.evidence_source import EvidenceSource
 from app.models.search import Search
 from app.models.verification_result import VerificationResult
 from app.tasks.celery_app import celery_app
-from app.tasks.pipeline import PipelineResult, _apply_pipeline_result, run_pipeline
+from app.tasks.pipeline import PipelineResult, _PipelineError, _apply_pipeline_result, run_pipeline
 
 logger = get_logger(__name__)
+
+
+def _user_error_message(exc: Exception) -> str:
+    if isinstance(exc, _PipelineError):
+        return "Search failed. The service may be temporarily unavailable — please try again."
+    return "An unexpected error occurred during verification."
 
 
 # ── DB orchestrator helpers ────────────────────────────────────────────────────
@@ -119,11 +124,12 @@ async def _run_verification_async(result_id: str) -> None:
     try:
         pipeline_result = await run_pipeline(name, company, email)
     except Exception as exc:
-        error_msg = format_exc_message(exc)
+        error_msg = _user_error_message(exc)
         logger.error(
             "Pipeline execution failed",
             result_id=result_id,
-            error=error_msg,
+            exc_type=type(exc).__name__,
+            error=str(exc),
             traceback=traceback.format_exc(),
         )
 

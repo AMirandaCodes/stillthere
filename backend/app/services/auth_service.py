@@ -2,7 +2,7 @@
 AuthService — business logic for registration, login, token refresh, and logout.
 
 Extracts all auth orchestration from the route layer so it can be tested
-without HTTP. Raises ValueError with a code string on domain errors; routes
+without HTTP. Raises AuthError with a code string on domain errors; routes
 map these to the appropriate HTTPException.
 """
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,29 +22,36 @@ from app.repositories.user_repository import UserRepository
 from app.schemas.user import TokenResponse
 
 
+class AuthError(Exception):
+    """Domain error from AuthService. Routes map .code to an HTTPException."""
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 class AuthService:
     def __init__(self, session: AsyncSession) -> None:
         self._users = UserRepository(session)
         self._tokens = RefreshTokenRepository(session)
 
     async def register(self, email: str, full_name: str, password: str) -> User:
-        """Create a new user. Raises ValueError('email_exists') if the address is taken."""
+        """Create a new user. Raises AuthError('email_exists') if the address is taken."""
         if await self._users.email_exists(email):
-            raise ValueError("email_exists")
+            raise AuthError("email_exists")
         return await self._users.create(email, full_name, hash_password(password))
 
     async def login(self, email: str, password: str) -> TokenResponse:
         """
         Validate credentials and issue a token pair.
 
-        Raises ValueError('invalid_credentials') for bad email/password,
-        ValueError('inactive') for a suspended account.
+        Raises AuthError('invalid_credentials') for bad email/password,
+        AuthError('inactive') for a suspended account.
         """
         user = await self._users.get_by_email(email)
         if not user or not verify_password(password, user.hashed_password):
-            raise ValueError("invalid_credentials")
+            raise AuthError("invalid_credentials")
         if not user.is_active:
-            raise ValueError("inactive")
+            raise AuthError("inactive")
         access = create_access_token(str(user.id))
         raw, hashed = generate_refresh_token()
         await self._tokens.create(user.id, hashed, refresh_token_expires_at())
@@ -57,11 +64,11 @@ class AuthService:
     async def refresh(self, raw_token: str) -> TokenResponse:
         """
         Rotate the refresh token and issue a new pair.
-        Raises ValueError('invalid_token') if the token is missing, expired, or revoked.
+        Raises AuthError('invalid_token') if the token is missing, expired, or revoked.
         """
         stored = await self._tokens.get_valid_by_hash(hash_token(raw_token))
         if not stored:
-            raise ValueError("invalid_token")
+            raise AuthError("invalid_token")
         await self._tokens.revoke(stored.token_hash)
         access = create_access_token(str(stored.user_id))
         raw, new_hash = generate_refresh_token()

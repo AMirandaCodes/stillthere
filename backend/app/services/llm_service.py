@@ -146,10 +146,10 @@ class LLMService:
     ) -> LLMAnalysisResult:
         """
         Send collected evidence to Claude and return a structured analysis.
-        Never raises — API failures and parse errors return all-unclear defaults.
+        Raises on API/network failure — task layer writes FAILED status.
+        Returns all-unclear defaults only on JSON parse failure.
         """
         prompt = self.build_prompt(name, company, email, search_results, pages)
-        raw = ""
         try:
             message = await self._client.messages.create(
                 model=self._model,
@@ -157,12 +157,10 @@ class LLMService:
                 system=_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}],
             )
-            raw = message.content[0].text
         except Exception as exc:
             logger.error("LLM API call failed", error=str(exc))
-            return LLMAnalysisResult(raw_response=f"API error: {exc}")
-
-        return self._parse_response(raw)
+            raise
+        return self._parse_response(message.content[0].text)
 
     @staticmethod
     def build_prompt(

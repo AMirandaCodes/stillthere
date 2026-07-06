@@ -36,7 +36,7 @@ export default function VerificationResultPage() {
     queryKey: ["verification", id],
     queryFn: () => verificationService.getVerification(id!),
     refetchInterval: (query) => {
-      if (query.state.error) return false;
+      if ((query.state.errorUpdateCount ?? 0) > 3) return false;
       const status = query.state.data?.status;
       return status === "complete" || status === "failed" ? false : 2000;
     },

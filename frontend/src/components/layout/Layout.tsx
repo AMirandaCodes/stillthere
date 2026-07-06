@@ -1,4 +1,5 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ShieldCheck, LogOut } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
@@ -88,7 +89,9 @@ export default function Layout() {
       </header>
 
       <main className="mx-auto max-w-4xl px-6 py-10">
-        <Outlet />
+        <ErrorBoundary>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   );

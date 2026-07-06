@@ -16,7 +16,7 @@ from app.api.deps import DbSession, get_current_user
 from app.core.rate_limiting import limiter
 from app.models.user import User
 from app.schemas.user import LoginRequest, RefreshRequest, TokenResponse, UserCreate, UserResponse
-from app.services.auth_service import AuthService
+from app.services.auth_service import AuthError, AuthService
 
 router = APIRouter()
 
@@ -26,13 +26,15 @@ router = APIRouter()
 async def register(request: Request, payload: UserCreate, db: DbSession) -> User:
     try:
         return await AuthService(db).register(payload.email, payload.full_name, payload.password)
-    except ValueError as exc:
-        if str(exc) == "email_exists":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="An account with this email address already exists",
-            )
-        raise
+    except AuthError as exc:
+        match exc.code:
+            case "email_exists":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="An account with this email address already exists",
+                )
+            case _:
+                raise
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -40,18 +42,19 @@ async def register(request: Request, payload: UserCreate, db: DbSession) -> User
 async def login(request: Request, payload: LoginRequest, db: DbSession) -> TokenResponse:
     try:
         return await AuthService(db).login(payload.email, payload.password)
-    except ValueError as exc:
-        code = str(exc)
-        if code == "invalid_credentials":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect email or password",
-            )
-        if code == "inactive":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive"
-            )
-        raise
+    except AuthError as exc:
+        match exc.code:
+            case "invalid_credentials":
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Incorrect email or password",
+                )
+            case "inactive":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive"
+                )
+            case _:
+                raise
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -59,7 +62,7 @@ async def login(request: Request, payload: LoginRequest, db: DbSession) -> Token
 async def refresh(request: Request, payload: RefreshRequest, db: DbSession) -> TokenResponse:
     try:
         return await AuthService(db).refresh(payload.refresh_token)
-    except ValueError:
+    except AuthError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
@@ -68,7 +71,7 @@ async def refresh(request: Request, payload: RefreshRequest, db: DbSession) -> T
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(payload: RefreshRequest, db: DbSession) -> None:
-    """Revoke the submitted refresh token. Silent if token is already invalid."""
+    """Revoke the submitted refresh token. Silent if already invalid."""
     await AuthService(db).logout(payload.refresh_token)
 
 
