@@ -64,3 +64,16 @@ export interface VerificationSummary {
   confidence_level: ConfidenceLevel;
   created_at: string;
 }
+
+export interface AdminVerificationSummary {
+  id: string;
+  search_id: string;
+  status: VerificationStatus;
+  full_name: string;
+  company_name: string;
+  work_email: string | null;
+  user_email: string | null;  // null = guest
+  confidence_score: number;
+  confidence_level: ConfidenceLevel;
+  created_at: string;
+}

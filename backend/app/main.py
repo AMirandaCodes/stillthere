@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from app.api.v1.routes import auth, batch, companies, contacts, health, verifications
+from app.api.v1.routes import admin, auth, batch, companies, contacts, health, verifications
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.core.rate_limiting import limiter
@@ -95,3 +95,4 @@ app.include_router(verifications.router,  prefix="/api/v1/verifications",  tags=
 app.include_router(contacts.router,       prefix="/api/v1/contacts",       tags=["contacts"])
 app.include_router(companies.router,      prefix="/api/v1/companies",      tags=["companies"])
 app.include_router(batch.router,          prefix="/api/v1/batch",          tags=["batch"])
+app.include_router(admin.router,          prefix="/api/v1/admin",          tags=["admin"])

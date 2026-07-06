@@ -2,16 +2,7 @@ import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { ShieldCheck, LogOut } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
-const guestNavLinks = [
-  { to: "/", label: "Verify", end: true },
-];
-
-const authNavLinks = [
-  { to: "/",        label: "Verify",      end: true },
-  { to: "/history", label: "History" },
-  { to: "/batch",   label: "Batch Upload" },
-  { to: "/jobs",    label: "Batch Jobs" },
-];
+const guestNavLinks = [{ to: "/", label: "Verify", end: true }];
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -22,7 +13,15 @@ export default function Layout() {
     navigate("/login");
   }
 
-  const navLinks = user ? authNavLinks : guestNavLinks;
+  const navLinks = user
+    ? [
+        { to: "/",        label: "Verify",      end: true },
+        { to: "/history", label: "History" },
+        { to: "/batch",   label: "Batch Upload" },
+        { to: "/jobs",    label: "Batch Jobs" },
+        ...(user.is_admin ? [{ to: "/admin", label: "Admin" }] : []),
+      ]
+    : guestNavLinks;
 
   return (
     <div className="min-h-screen bg-gray-50">

@@ -9,6 +9,7 @@ from app.models.contact import Contact
 from app.models.enums import SearchSource, VerificationStatus
 from app.models.evidence_source import EvidenceSource
 from app.models.search import Search
+from app.models.user import User
 from app.models.verification_result import VerificationResult
 from app.repositories.base import BaseRepository
 
@@ -105,6 +106,34 @@ class VerificationRepository(BaseRepository[VerificationResult]):
         )
         if user_id is not None:
             stmt = stmt.where(Search.user_id == user_id)
+        rows = await self.session.execute(stmt)
+        return list(rows.scalars().all()), total
+
+    async def list_all_with_user(
+        self, offset: int = 0, limit: int = 20
+    ) -> tuple[list[VerificationResult], int]:
+        """
+        Paginated list of ALL verifications across every user, with user info loaded.
+        Used exclusively by the admin view — never call from user-facing routes.
+        """
+        total: int = await self.session.scalar(
+            select(func.count(VerificationResult.id)).join(VerificationResult.search)
+        ) or 0
+
+        stmt = (
+            select(VerificationResult)
+            .join(VerificationResult.search)
+            .options(
+                selectinload(VerificationResult.search).options(
+                    selectinload(Search.contact),
+                    selectinload(Search.company),
+                    selectinload(Search.user),
+                )
+            )
+            .order_by(VerificationResult.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
         rows = await self.session.execute(stmt)
         return list(rows.scalars().all()), total
 

@@ -131,3 +131,19 @@ class VerificationSummary(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AdminVerificationSummary(BaseModel):
+    """Lightweight summary for the admin all-users view — includes submitter info."""
+    id: UUID
+    search_id: UUID
+    status: VerificationStatus
+    full_name: str
+    company_name: str
+    work_email: str | None
+    user_email: str | None   # None = guest / unauthenticated search
+    confidence_score: int
+    confidence_level: ConfidenceLevel
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
