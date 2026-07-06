@@ -61,9 +61,17 @@ The platform supports two workflows:
 
 - **Batch CSV fan-out with atomic progress** — A batch job pre-creates all database records before dispatching N Celery tasks. Each row task atomically increments shared counters on the parent job. Progress is visible in real time via polling.
 
+- **Redis-based per-user rate limiting** — Daily quotas (5 verifications / 1 guest / 2 batch uploads) are enforced via Redis `INCR` + `EXPIREAT` pipeline counters. Authenticated users are keyed by user ID; guests by SHA-256-hashed IP (so raw IPs are never stored). The service is fail-open: if Redis is unavailable, requests pass through rather than blocking legitimate users.
+
+- **Admin panel with cross-user visibility** — An `is_admin` flag on the User model gates a `GET /api/v1/admin/verifications` endpoint that returns all verifications across every account, including the submitting user's email (or `null` for guests). A dedicated `AdminRoute` component guards the frontend `/admin` page, redirecting non-admins to `/` rather than exposing a 403.
+
+- **LinkedIn profile URL filtering** — The LLM prompt explicitly prohibits returning company page URLs (`linkedin.com/company/…`) as the LinkedIn Profile link. A `field_validator` on `LLMAnalysisResult` strips any LinkedIn URL that does not contain `/in/`, providing a second layer of defence against model hallucination.
+
 - **Rotate-on-use refresh tokens** — Refresh tokens are single-use; re-using a spent token returns 401. This prevents replay attacks without requiring a server-side token blocklist.
 
 - **SQLAlchemy 2.x enum binding** — SQLAlchemy 2.x with `native_enum=False` binds enum `.name` (uppercase) by default, not `.value`. Database check constraints were created with lowercase values. The non-obvious fix — `values_callable=lambda x: [e.value for e in x]` on every `SAEnum` declaration — must be applied to every enum column and fails silently at definition time; the error only surfaces as a `CheckViolationError` at insert time.
+
+- **asyncpg URL sanitisation** — Neon (and other managed PostgreSQL providers) issue libpq-style connection strings with `sslmode=require&channel_binding=require`. The asyncpg driver rejects both parameters. A `field_validator` on `DATABASE_URL` strips all libpq-only query parameters and re-adds `ssl=require` when SSL was originally requested, making the URL transparently compatible with asyncpg without requiring manual editing.
 
 - **Savepoint-based test isolation** — Integration tests run inside a connection-level transaction. `session.commit()` calls create savepoints (via SQLAlchemy 2.x `join_transaction_mode="create_savepoint"`) rather than committing the outer transaction. `connection.rollback()` at teardown undoes all changes without any DDL between tests.
 
@@ -186,12 +194,12 @@ The total maps to a confidence level: **High** (≥70), **Medium** (40–69), **
 | Migrations | Alembic |
 | Task queue | Celery + Redis |
 | Task monitor | Flower |
-| Database | PostgreSQL 15 |
+| Database | PostgreSQL 16 (Neon serverless) |
+| Rate limiting | Redis INCR/EXPIREAT counters (per-user daily quotas) |
 | Web search | Serper.dev API |
 | AI analysis | Anthropic Claude API |
 | HTTP client | httpx (async) |
 | HTML parsing | BeautifulSoup4 |
-| Rate limiting | slowapi |
 | Logging | structlog (structured JSON) |
 | Containers | Docker + Docker Compose |
 | Testing | pytest, pytest-asyncio, Vitest, Testing Library |
@@ -215,7 +223,8 @@ stillthere/
 │   │   ├── repositories/            # All DB queries — one class per entity
 │   │   ├── schemas/                 # Pydantic request / response models
 │   │   ├── services/                # SearchService, EvidenceService, LLMService,
-│   │   │                            #   ConfidenceService, BatchService, CacheService, …
+│   │   │                            #   ConfidenceService, BatchService, CacheService,
+│   │   │                            #   RateLimitService, …
 │   │   ├── tasks/                   # Celery app + verification_tasks + batch_tasks
 │   │   └── main.py                  # FastAPI factory, lifespan (Redis, CORS, rate limiting)
 │   ├── alembic/                     # Database migrations
@@ -232,12 +241,13 @@ stillthere/
 ├── frontend/
 │   └── src/
 │       ├── components/              # Spinner, TriStateBadge, StatusBadge, ConfidenceScore,
-│       │                            #   Pagination, ProtectedRoute, Layout
+│       │                            #   Pagination, WakeupHint, ProtectedRoute,
+│       │                            #   AdminRoute, Layout
 │       ├── context/                 # AuthContext — session restore, login, logout
 │       ├── pages/                   # Login, Register, Home, VerificationResult,
-│       │                            #   SearchHistory, BatchUpload, BatchJobs
+│       │                            #   SearchHistory, BatchUpload, BatchJobs, Admin
 │       ├── services/                # api.ts (axios + interceptors), authService,
-│       │                            #   verificationService, batchService
+│       │                            #   verificationService, batchService, adminService
 │       ├── types/                   # TypeScript interfaces matching backend Pydantic schemas
 │       ├── index.css                # Global styles — Georgia font, Tailwind directives
 │       └── test-setup.ts            # Vitest + @testing-library/jest-dom bootstrap
@@ -327,7 +337,7 @@ npm run dev   # Vite dev server on :5173, proxies /api to localhost:8000
 | `CORS_ORIGINS` | No | **JSON array string**: `["http://localhost:5173"]` — not comma-separated |
 | `DEBUG` | No | `true` enables verbose logging and auto-migration on startup |
 
-`DATABASE_URL` is composed automatically from the `POSTGRES_*` variables inside `docker-compose.yml`. Do not set it manually when using Docker Compose.
+`DATABASE_URL` is composed automatically from the `POSTGRES_*` variables inside `docker-compose.yml` for local development. In production (Render), set it manually to the Neon external connection string — the `fix_database_url` validator strips libpq-only parameters automatically.
 
 See [`.env.example`](.env.example) for all available variables and defaults.
 
@@ -354,6 +364,7 @@ FastAPI generates interactive documentation automatically from route and schema 
 | `POST` | `/api/v1/batch/upload` | Upload CSV for batch processing |
 | `GET` | `/api/v1/batch/{id}` | Poll batch job status |
 | `GET` | `/api/v1/batch/{id}/export` | Download results as CSV |
+| `GET` | `/api/v1/admin/verifications` | All verifications across all users (admin only) |
 | `GET` | `/api/v1/health` | Health check |
 
 ---
@@ -402,14 +413,15 @@ The application is deployed on Render's free tier:
 |---|---|---|
 | `stillthere-frontend` | Static Site | https://stillthere-frontend.onrender.com |
 | `stillthere-backend` | Web Service (Python) | https://stillthere-backend.onrender.com |
-| `stillthere-db` | Managed PostgreSQL | — (internal) |
+| Neon PostgreSQL | Serverless PostgreSQL | — (external, neon.tech) |
 | Upstash Redis | External Redis | — (internal) |
 
 **Key deployment details:**
 
 - Alembic migrations run in the Start Command (`alembic upgrade head && uvicorn ...`) — not inside the FastAPI lifespan.
 - Celery runs in the same Web Service dyno as uvicorn, started as a background process with `&` in the Start Command.
-- `DATABASE_URL` is set manually in the Render dashboard using the **External** database URL (the internal hostname is not resolvable on free tier). It is declared `sync: false` in `render.yaml` so Blueprint Syncs never overwrite it.
+- `DATABASE_URL` is set manually in the Render dashboard to the **Neon connection string**. It is declared `sync: false` in `render.yaml` so Blueprint Syncs never overwrite it. Neon connection strings contain libpq-only parameters (`sslmode`, `channel_binding`) that asyncpg rejects — the `fix_database_url` validator in `config.py` strips them automatically and emits `ssl=require` instead.
+- Neon's serverless compute auto-suspends after 5 minutes of inactivity, waking on the next query in ~1–2 seconds. A wakeup hint is shown on loading screens so users are aware during cold starts.
 - Upstash Redis (free tier) supports only database 0. Both `REDIS_URL` and `CELERY_RESULT_BACKEND` must end in `/0`.
 - `rediss://` URLs require explicit SSL configuration in `celery_app.py` (`broker_use_ssl` / `redis_backend_use_ssl`) — Kombu does not parse `?ssl_cert_reqs=CERT_NONE` from the URL string.
 - `CORS_ORIGINS` must be a JSON array string: `["https://stillthere-frontend.onrender.com"]`.
@@ -430,6 +442,7 @@ The application is deployed on Render's free tier:
 | 8 | ✅ Complete | Testing suite + GitHub Actions CI |
 | 9 | ✅ Complete | Documentation |
 | 10 | ✅ Complete | Visual polish — Georgia font, teal/dark-green brand palette, centred layout |
+| 11 | ✅ Complete | Per-user rate limits, admin panel, LinkedIn profile filtering, Neon DB migration |
 
 ---
 
