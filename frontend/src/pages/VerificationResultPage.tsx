@@ -5,6 +5,7 @@ import { ArrowLeft, ExternalLink } from "lucide-react";
 import { verificationService } from "@/services/verificationService";
 import { useAuth } from "@/context/AuthContext";
 import Spinner from "@/components/ui/Spinner";
+import WakeupHint from "@/components/ui/WakeupHint";
 import TriStateBadge from "@/components/ui/TriStateBadge";
 import StatusBadge from "@/components/ui/StatusBadge";
 import ConfidenceScore from "@/components/ui/ConfidenceScore";
@@ -46,6 +47,7 @@ export default function VerificationResultPage() {
       <div className="flex flex-col items-center justify-center gap-3 py-32">
         <Spinner size="lg" />
         <p className="text-sm text-gray-500">Loading verification…</p>
+        <WakeupHint />
       </div>
     );
   }
@@ -92,6 +94,7 @@ export default function VerificationResultPage() {
           <Spinner size="lg" />
           <p className="font-medium text-blue-700">Verifying…</p>
           <p className="text-sm text-blue-500">This typically takes 30–90 seconds. The page updates automatically.</p>
+          <WakeupHint />
         </div>
       )}
 

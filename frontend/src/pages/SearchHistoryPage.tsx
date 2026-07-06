@@ -5,6 +5,7 @@ import { format } from "date-fns";
 import { PlusCircle } from "lucide-react";
 import { verificationService } from "@/services/verificationService";
 import Spinner from "@/components/ui/Spinner";
+import WakeupHint from "@/components/ui/WakeupHint";
 import StatusBadge from "@/components/ui/StatusBadge";
 import ConfidenceScore from "@/components/ui/ConfidenceScore";
 import Pagination from "@/components/ui/Pagination";
@@ -35,8 +36,9 @@ export default function SearchHistoryPage() {
       </div>
 
       {isLoading && (
-        <div className="flex justify-center py-20">
+        <div className="flex flex-col items-center py-20">
           <Spinner size="lg" />
+          <WakeupHint />
         </div>
       )}
 

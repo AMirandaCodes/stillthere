@@ -6,6 +6,7 @@ import { Download, PlusCircle } from "lucide-react";
 import { clsx } from "clsx";
 import { batchService } from "@/services/batchService";
 import Spinner from "@/components/ui/Spinner";
+import WakeupHint from "@/components/ui/WakeupHint";
 import StatusBadge from "@/components/ui/StatusBadge";
 import Pagination from "@/components/ui/Pagination";
 import type { BatchJob } from "@/types/batch";
@@ -75,8 +76,9 @@ export default function BatchJobsPage() {
       </div>
 
       {isLoading && (
-        <div className="flex justify-center py-20">
+        <div className="flex flex-col items-center py-20">
           <Spinner size="lg" />
+          <WakeupHint />
         </div>
       )}
 
