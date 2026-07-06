@@ -70,9 +70,11 @@ class Settings(BaseSettings):
     def fix_database_url(cls, v: str) -> str:
         if isinstance(v, str):
             if v.startswith("postgres://"):
-                return v.replace("postgres://", "postgresql+asyncpg://", 1)
-            if v.startswith("postgresql://") and "+asyncpg" not in v:
-                return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+                v = v.replace("postgres://", "postgresql+asyncpg://", 1)
+            elif v.startswith("postgresql://") and "+asyncpg" not in v:
+                v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+            # asyncpg uses ?ssl=require; libpq-style ?sslmode=require is not supported
+            v = v.replace("sslmode=", "ssl=")
         return v
 
     @field_validator("CORS_ORIGINS", mode="before")
