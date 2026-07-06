@@ -68,14 +68,35 @@ class Settings(BaseSettings):
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
     def fix_database_url(cls, v: str) -> str:
-        if isinstance(v, str):
-            if v.startswith("postgres://"):
-                v = v.replace("postgres://", "postgresql+asyncpg://", 1)
-            elif v.startswith("postgresql://") and "+asyncpg" not in v:
-                v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
-            # asyncpg uses ?ssl=require; libpq-style ?sslmode=require is not supported
-            v = v.replace("sslmode=", "ssl=")
-        return v
+        from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+
+        if not isinstance(v, str):
+            return v
+
+        # Normalize scheme for asyncpg
+        if v.startswith("postgres://"):
+            v = v.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif v.startswith("postgresql://") and "+asyncpg" not in v:
+            v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+        # Strip libpq-only query params that asyncpg rejects.
+        # Neon connection strings include sslmode, channel_binding, options, etc.
+        _LIBPQ_ONLY = {"sslmode", "channel_binding", "options"}
+        _SSL_REQUIRING = {"require", "verify-ca", "verify-full", "prefer"}
+
+        parsed = urlparse(v)
+        params = parse_qs(parsed.query, keep_blank_values=True)
+
+        ssl_mode = (params.pop("sslmode", [None])[0] or "")
+        for key in _LIBPQ_ONLY - {"sslmode"}:
+            params.pop(key, None)
+
+        if ssl_mode in _SSL_REQUIRING and "ssl" not in params:
+            params["ssl"] = ["require"]
+
+        new_query = urlencode({k: vals[0] for k, vals in params.items()})
+        return urlunparse(parsed._replace(query=new_query))
+
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
