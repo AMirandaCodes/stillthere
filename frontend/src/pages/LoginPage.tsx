@@ -6,6 +6,7 @@ import { z } from "zod";
 import { ShieldCheck } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import Spinner from "@/components/ui/Spinner";
+import WakeupHint from "@/components/ui/WakeupHint";
 
 const schema = z.object({
   email:    z.string().email("Enter a valid email address"),
@@ -79,6 +80,12 @@ export default function LoginPage() {
               {isSubmitting && <Spinner size="sm" className="text-white" />}
               Sign in
             </button>
+
+            {isSubmitting && (
+              <div className="flex justify-center">
+                <WakeupHint />
+              </div>
+            )}
           </form>
         </div>
 

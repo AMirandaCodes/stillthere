@@ -6,6 +6,7 @@ import { z } from "zod";
 import { ShieldCheck } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import Spinner from "@/components/ui/Spinner";
+import WakeupHint from "@/components/ui/WakeupHint";
 
 const schema = z.object({
   full_name: z.string().min(1, "Full name is required"),
@@ -92,6 +93,12 @@ export default function RegisterPage() {
               {isSubmitting && <Spinner size="sm" className="text-white" />}
               Create account
             </button>
+
+            {isSubmitting && (
+              <div className="flex justify-center">
+                <WakeupHint />
+              </div>
+            )}
           </form>
         </div>
 
