@@ -146,13 +146,33 @@ async def _process_batch_job_async(batch_job_id: str) -> None:
         )
 
 
+async def _mark_batch_job_failed_direct(batch_job_id: str) -> None:
+    """Best-effort FAILED update for a BatchJob when Phase-1 DB failure occurs."""
+    job_uuid = UUID(batch_job_id)
+    async with AsyncSessionLocal() as session:
+        batch_job = await session.get(BatchJob, job_uuid)
+        if batch_job is not None and batch_job.status not in (
+            BatchJobStatus.COMPLETE, BatchJobStatus.FAILED
+        ):
+            batch_job.status = BatchJobStatus.FAILED
+            await session.commit()
+
+
 @celery_app.task(
     bind=True,
     name="batch.process_job",
     acks_late=True,
 )
 def process_batch_job(self, batch_job_id: str) -> None:
-    asyncio.run(_process_batch_job_async(batch_job_id))
+    try:
+        asyncio.run(_process_batch_job_async(batch_job_id))
+    except Exception as exc:
+        logger.error("Batch job task-level failure", batch_job_id=batch_job_id, error=str(exc))
+        try:
+            asyncio.run(_mark_batch_job_failed_direct(batch_job_id))
+        except Exception:
+            pass
+        raise
 
 
 # ── process_batch_row ──────────────────────────────────────────────────────────
@@ -261,6 +281,28 @@ async def _process_batch_row_async(batch_job_id: str, job_result_id: str) -> Non
     await _increment_counters(job_uuid, failed=failed, unclear=unclear)
 
 
+async def _mark_batch_row_failed_direct(
+    batch_job_id: str, job_result_id: str, error_message: str
+) -> None:
+    """Best-effort FAILED update for a batch row when Phase-1 DB failure occurs."""
+    result_uuid = UUID(job_result_id)
+    job_uuid = UUID(batch_job_id)
+    async with AsyncSessionLocal() as session:
+        jr = await session.get(JobResult, result_uuid)
+        if jr is not None and jr.status == JobResultStatus.PENDING:
+            jr.status = JobResultStatus.FAILED
+            jr.error_message = error_message
+            if jr.verification_result_id:
+                ver = await session.get(VerificationResult, jr.verification_result_id)
+                if ver is not None and ver.status not in (
+                    VerificationStatus.COMPLETE, VerificationStatus.FAILED
+                ):
+                    ver.status = VerificationStatus.FAILED
+                    ver.error_message = error_message
+            await session.commit()
+    await _increment_counters(job_uuid, failed=True)
+
+
 @celery_app.task(
     bind=True,
     name="batch.process_row",
@@ -268,7 +310,24 @@ async def _process_batch_row_async(batch_job_id: str, job_result_id: str) -> Non
     rate_limit="10/m",
 )
 def process_batch_row(self, batch_job_id: str, job_result_id: str) -> None:
-    asyncio.run(_process_batch_row_async(batch_job_id, job_result_id))
+    try:
+        asyncio.run(_process_batch_row_async(batch_job_id, job_result_id))
+    except Exception as exc:
+        logger.error(
+            "Batch row task-level failure",
+            batch_job_id=batch_job_id,
+            job_result_id=job_result_id,
+            error=str(exc),
+        )
+        try:
+            asyncio.run(
+                _mark_batch_row_failed_direct(
+                    batch_job_id, job_result_id, "Verification could not be processed."
+                )
+            )
+        except Exception:
+            pass
+        raise
 
 
 # ── Counter helper ─────────────────────────────────────────────────────────────

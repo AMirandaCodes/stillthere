@@ -145,9 +145,14 @@ class BatchService:
         Returns immediately with BatchJobResponse(status=QUEUED).
         Processing happens asynchronously via Celery.
         """
-        raw = await file.read()
-        if len(raw) > _MAX_CSV_BYTES:
-            raise BatchValidationError("File exceeds the 5 MB size limit.")
+        chunks: list[bytes] = []
+        total = 0
+        while chunk := await file.read(65536):
+            total += len(chunk)
+            if total > _MAX_CSV_BYTES:
+                raise BatchValidationError("File exceeds the 5 MB size limit.")
+            chunks.append(chunk)
+        raw = b"".join(chunks)
 
         try:
             text = raw.decode("utf-8-sig")  # strip UTF-8 BOM if present
@@ -374,7 +379,16 @@ class BatchService:
                     .offset(offset)
                     .limit(PAGE)
                 )
-                page_rows = list((await session.execute(stmt)).scalars().all())
+                try:
+                    page_rows = list((await session.execute(stmt)).scalars().all())
+                except Exception as exc:
+                    logger.error(
+                        "CSV export DB error — truncating stream",
+                        job_id=str(job_id),
+                        offset=offset,
+                        error=str(exc),
+                    )
+                    break
                 if not page_rows:
                     break
 

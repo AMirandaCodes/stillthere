@@ -39,7 +39,11 @@ async def get_current_user(
 
     user_id_str: str | None = payload.get("sub")
     if not user_id_str:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Malformed token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Malformed token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     try:
         user_id = UUID(user_id_str)
@@ -52,7 +56,9 @@ async def get_current_user(
     user = await UserRepository(db).get_by_id(user_id)
     if not user or not user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     return user
 
@@ -89,7 +95,11 @@ async def get_optional_user(
     user_id_str: str | None = payload.get("sub")
     if not user_id_str:
         return None
-    user = await UserRepository(db).get_by_id(UUID(user_id_str))
+    try:
+        user_id = UUID(user_id_str)
+    except ValueError:
+        return None
+    user = await UserRepository(db).get_by_id(user_id)
     if not user or not user.is_active:
         return None
     return user

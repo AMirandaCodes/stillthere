@@ -156,6 +156,7 @@ class LLMService:
                 max_tokens=_MAX_TOKENS,
                 system=_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}],
+                timeout=30.0,
             )
         except Exception as exc:
             logger.error("LLM API call failed", error=str(exc))

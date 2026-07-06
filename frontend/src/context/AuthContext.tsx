@@ -47,7 +47,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function logout() {
     const refreshToken = authService.getRefreshToken() ?? "";
-    await authService.logout(refreshToken);
+    try {
+      await authService.logout(refreshToken);
+    } catch {
+      // Server-side revocation failed; clear local state anyway.
+      // The refresh token will expire naturally on the backend.
+    }
+    authService.clearTokens();
     setUser(null);
   }
 

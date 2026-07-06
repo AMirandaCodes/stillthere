@@ -156,6 +156,19 @@ async def _run_verification_async(result_id: str) -> None:
 
 # ── Celery task ────────────────────────────────────────────────────────────────
 
+async def _mark_failed_direct(result_id: str, error_message: str) -> None:
+    """Best-effort FAILED update when Phase-1 DB failure prevents normal orchestration."""
+    result_uuid = UUID(result_id)
+    async with AsyncSessionLocal() as session:
+        result = await session.get(VerificationResult, result_uuid)
+        if result is not None and result.status not in (
+            VerificationStatus.COMPLETE, VerificationStatus.FAILED
+        ):
+            result.status = VerificationStatus.FAILED
+            result.error_message = error_message
+            await session.commit()
+
+
 @celery_app.task(
     bind=True,
     name="verification.run",
@@ -165,8 +178,16 @@ def run_verification(self, result_id: str) -> None:
     """
     Sync Celery entry point. Delegates to the async orchestrator via asyncio.run().
 
-    Only raises if the DB is completely unavailable (asyncio.run raises).
-    In that case acks_late ensures the message is re-queued automatically.
-    All application-level errors are handled inside _run_verification_async.
+    Application-level errors are handled inside _run_verification_async.
+    If the DB itself is unavailable (Phase-1 failure), we attempt a best-effort
+    FAILED update so the result does not stay stuck in PENDING indefinitely.
     """
-    asyncio.run(_run_verification_async(result_id))
+    try:
+        asyncio.run(_run_verification_async(result_id))
+    except Exception as exc:
+        logger.error("Task-level failure", result_id=result_id, error=str(exc))
+        try:
+            asyncio.run(_mark_failed_direct(result_id, "Verification could not be processed."))
+        except Exception:
+            pass
+        raise
