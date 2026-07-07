@@ -138,6 +138,44 @@ Tasks check `VerificationResult.status` on entry:
 
 ---
 
+## Security constraints
+
+Non-obvious findings from the security audit suite. These affect how new code should be written.
+
+### Do not call `html.escape()` at input time
+
+`app/core/security.py:sanitise_name()` and `sanitise_company()` call `html.escape()` before applying the regex allow-list. This corrupts legitimate input on a JSON API: `&` → `&amp;`, `"` → `&quot;`, then the regex strips `&` and `;`, leaving `amp` and `quot` in the stored value. HTML escaping belongs at render time (in the template), not at input time. Do not add further `html.escape()` calls to input-sanitisation functions. The existing calls are a known bug tracked in `audits/input-validation-audit.md` (IV-01).
+
+### CSV export — sanitize formula-trigger characters on every user-supplied cell
+
+`app/services/csv_export.py` writes user-uploaded cell values directly to the export CSV. Any value beginning with `=`, `+`, `-`, `@`, `\t`, or `\r` is interpreted as a formula by spreadsheet applications (CSV injection, CWE-1236). Every new column added to `_csv_row()` that contains user-supplied data must prefix trigger characters with a single quote `'`. ORM enum values (e.g. `jr.status.value`) are safe and do not need sanitization. See `audits/file-upload-audit.md` (FU-01) for a drop-in `_sanitize_cell()` helper.
+
+### `echo=settings.DEBUG` logs SQL bind parameters including PII
+
+Both SQLAlchemy engines in `app/db/session.py` are created with `echo=settings.DEBUG`. When `DEBUG=True`, every SQL statement is logged including bind parameters — this means email addresses appear in WHERE clauses and names appear in INSERT values in the log output. Never enable `DEBUG=True` in an environment where logs are accessible outside the development machine.
+
+### Redis URL logs credentials on startup
+
+`app/main.py:38` logs `url=settings.REDIS_URL` at startup. If the Redis URL contains a password (`rediss://password@host/0`), the password appears in the log. A `_redact_url()` helper (see `audits/logging-monitoring-audit.md`, LM-01) should be applied before logging. Do not add further log lines that log raw connection strings.
+
+### `SecurityHeadersMiddleware` is missing Content-Security-Policy
+
+`app/main.py:SecurityHeadersMiddleware` sets five security headers but does not set `Content-Security-Policy`. This is a known open item (see `audits/session-cookie-audit.md`, SS-02). When adding or modifying the middleware, do not remove existing headers. The recommended policy to add:
+
+```python
+response.headers["Content-Security-Policy"] = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; font-src 'self'; connect-src 'self'; "
+    "frame-ancestors 'none'; base-uri 'self'; form-action 'self';"
+)
+```
+
+### `_ALLOWED_NAME_RE` permits newlines via `\s`
+
+`app/core/security.py:9`: `_ALLOWED_NAME_RE = re.compile(r"[^\w\s\-\.\'\,]")` — `\s` matches `\n`, `\r`, and `\t` as well as spaces. Newlines in a name field that reaches LLM prompt context can act as prompt injection (CWE-1336). If this regex is tightened, replace `\s` with `[ ]` (literal space only) and verify that names with spaces still pass the validator. See `audits/input-validation-audit.md` (IV-03).
+
+---
+
 ## Environment variables
 
 Copy `.env.example` → `.env`. Minimum required for a working dev stack:

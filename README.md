@@ -67,7 +67,9 @@ The platform supports two workflows:
 
 - **LinkedIn profile URL filtering** — The LLM prompt explicitly prohibits returning company page URLs (`linkedin.com/company/…`) as the LinkedIn Profile link. A `field_validator` on `LLMAnalysisResult` strips any LinkedIn URL that does not contain `/in/`, providing a second layer of defence against model hallucination.
 
-- **Rotate-on-use refresh tokens** — Refresh tokens are single-use; re-using a spent token returns 401. This prevents replay attacks without requiring a server-side token blocklist.
+- **Refresh token security design** — Refresh tokens are 512-bit random hex strings (128 characters); only the SHA-256 hash is stored in the database so a compromised token table cannot be reversed. Tokens are single-use — every `/refresh` call issues a new pair and revokes the old one. Re-using a spent token is treated as a theft indicator and triggers revocation of *all* active sessions for that user (session-family revocation). The `token_issued_before` column on `User` invalidates all outstanding access tokens when a user changes their password, closing the gap between credential change and token expiry.
+
+- **Timing-attack prevention on login** — `AuthService.login()` always runs a bcrypt comparison regardless of whether the email exists, using a precomputed `_DUMMY_HASH`. Without this, an attacker could distinguish "email not found" from "wrong password" by response time, enabling account enumeration (CWE-203). The dummy compare equalises both paths to approximately one bcrypt round-trip.
 
 - **SQLAlchemy 2.x enum binding** — SQLAlchemy 2.x with `native_enum=False` binds enum `.name` (uppercase) by default, not `.value`. Database check constraints were created with lowercase values. The non-obvious fix — `values_callable=lambda x: [e.value for e in x]` on every `SAEnum` declaration — must be applied to every enum column and fails silently at definition time; the error only surfaces as a `CheckViolationError` at insert time.
 
@@ -265,7 +267,9 @@ stillthere/
 │   ├── vitest.config.ts
 │   ├── package.json
 │   └── Dockerfile
-├── audits/                          # Code quality audit reports (architecture, SOLID, testing, …)
+├── audits/                          # Code quality + security audit reports (architecture, SOLID,
+│                                    #   testing, API security, auth, authz, DB, file upload,
+│                                    #   input validation, logging, secrets management, sessions)
 ├── CLAUDE.md                        # AI assistant guidance (commands, architecture, constraints)
 ├── docker-compose.yml               # Full development stack — 6 services
 ├── docker-compose.dev.yml           # Dev overrides — hot-reload, debug logging
@@ -454,6 +458,7 @@ The application is deployed on Render's free tier:
 | 10 | ✅ Complete | Visual polish — Georgia font, teal/dark-green brand palette, centred layout |
 | 11 | ✅ Complete | Per-user rate limits, admin panel, LinkedIn profile filtering, Neon DB migration |
 | 12 | ✅ Complete | Code quality — SOLID refactoring, complexity reduction, naming/readability, error handling, design patterns, resilience (circuit breakers), testing suite expansion |
+| 13 | ✅ Complete | Security audit suite — API security, authentication, authorisation, database, file upload, input validation, logging/monitoring, secrets management, session/cookie security (13 audit reports in `audits/`) |
 
 ---
 
