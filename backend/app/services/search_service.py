@@ -21,16 +21,13 @@ Resilience:
 """
 import hashlib
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
-from app.core.circuit_breakers import CircuitBreakerOpen, serper_breaker
+from app.core.circuit_breakers import CircuitBreaker, CircuitBreakerOpen, serper_breaker
 from app.core.logging import get_logger
-
-if TYPE_CHECKING:
-    from app.services.cache_service import CacheService
 
 logger = get_logger(__name__)
 
@@ -53,6 +50,21 @@ class SearchProvider(Protocol):
         company: str,
         email: str | None = None,
     ) -> "SearchResults":
+        ...
+
+
+class SearchCacheProtocol(Protocol):
+    """
+    Minimal cache interface required by SearchService.
+
+    CacheService satisfies this structurally; consumers needing only search
+    caching can depend on this narrower interface instead of the full CacheService.
+    """
+
+    async def get_search_results(self, key: str) -> dict | None:
+        ...
+
+    async def set_search_results(self, key: str, data: dict) -> None:
         ...
 
 
@@ -89,21 +101,27 @@ class SearchService:
     Accepts an injected httpx.AsyncClient so the HTTP layer can be replaced
     with respx mocks during unit tests without real network calls.
 
-    Optional CacheService: when provided, query results are read from / written
-    to Redis (30-min TTL) so repeated identical queries don't burn Serper quota.
+    Optional cache (SearchCacheProtocol): when provided, query results are read
+    from / written to Redis (30-min TTL) so repeated identical queries don't burn
+    Serper quota.  CacheService satisfies SearchCacheProtocol structurally.
+
+    Optional breaker (CircuitBreaker): defaults to the module-level serper_breaker
+    singleton; pass a no-op breaker in tests to avoid cross-test state leakage.
     """
 
     def __init__(
         self,
         api_key: str,
         http_client: httpx.AsyncClient,
-        cache: "CacheService | None" = None,
+        cache: SearchCacheProtocol | None = None,
         max_results_per_query: int = 10,
+        breaker: CircuitBreaker | None = None,
     ) -> None:
         self._api_key = api_key
         self._client = http_client
         self._cache = cache
         self._max_results = max_results_per_query
+        self._breaker = breaker if breaker is not None else serper_breaker
 
     async def search(
         self,
@@ -188,7 +206,7 @@ class SearchService:
     )
     async def _call_serper(self, query_text: str) -> dict[str, Any]:
         """POST one query to Serper. Retried on 5xx / network errors; 4xx propagates."""
-        if serper_breaker.is_open():
+        if self._breaker.is_open():
             raise CircuitBreakerOpen(
                 "Serper circuit breaker open — service temporarily unavailable"
             )
@@ -204,15 +222,15 @@ class SearchService:
             )
             response.raise_for_status()
             result = response.json()
-            serper_breaker.record_success()
+            self._breaker.record_success()
             return result
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code < 500:
                 raise  # 4xx: caller error; don't trip the circuit
-            serper_breaker.record_failure()
+            self._breaker.record_failure()
             raise
         except (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError):
-            serper_breaker.record_failure()
+            self._breaker.record_failure()
             raise
 
     @staticmethod

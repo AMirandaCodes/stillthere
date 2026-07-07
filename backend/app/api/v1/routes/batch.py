@@ -18,6 +18,7 @@ from app.models.enums import BatchJobStatus
 from app.schemas.batch import BatchJobResponse, JobResultResponse
 from app.schemas.common import PaginatedResponse
 from app.services.batch_service import BatchService, BatchValidationError
+from app.services.csv_export import export_csv_stream
 
 router = APIRouter()
 
@@ -146,7 +147,7 @@ async def export_batch_results(
             ),
         )
     return StreamingResponse(
-        BatchService.export_csv_stream(job_id),
+        export_csv_stream(job_id),
         media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="batch_{job_id}_results.csv"'

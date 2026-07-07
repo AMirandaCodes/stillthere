@@ -24,20 +24,30 @@ from app.schemas.user import TokenResponse
 
 class AuthError(Exception):
     """Domain error from AuthService. Routes map .code to an HTTPException."""
+    EMAIL_EXISTS        = "email_exists"
+    INVALID_CREDENTIALS = "invalid_credentials"
+    INACTIVE            = "inactive"
+    INVALID_TOKEN       = "invalid_token"
+
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
 
 
 class AuthService:
-    def __init__(self, session: AsyncSession) -> None:
-        self._users = UserRepository(session)
-        self._tokens = RefreshTokenRepository(session)
+    def __init__(
+        self,
+        session: AsyncSession,
+        user_repo: UserRepository | None = None,
+        token_repo: RefreshTokenRepository | None = None,
+    ) -> None:
+        self._users = user_repo or UserRepository(session)
+        self._tokens = token_repo or RefreshTokenRepository(session)
 
     async def register(self, email: str, full_name: str, password: str) -> User:
-        """Create a new user. Raises AuthError('email_exists') if the address is taken."""
+        """Create a new user. Raises AuthError.EMAIL_EXISTS if the address is taken."""
         if await self._users.email_exists(email):
-            raise AuthError("email_exists")
+            raise AuthError(AuthError.EMAIL_EXISTS)
         return await self._users.create(email, full_name, hash_password(password))
 
     async def login(self, email: str, password: str) -> TokenResponse:
@@ -49,15 +59,15 @@ class AuthService:
         """
         user = await self._users.get_by_email(email)
         if not user or not verify_password(password, user.hashed_password):
-            raise AuthError("invalid_credentials")
+            raise AuthError(AuthError.INVALID_CREDENTIALS)
         if not user.is_active:
-            raise AuthError("inactive")
+            raise AuthError(AuthError.INACTIVE)
         access = create_access_token(str(user.id))
-        raw, hashed = generate_refresh_token()
-        await self._tokens.create(user.id, hashed, refresh_token_expires_at())
+        raw_token, token_hash = generate_refresh_token()
+        await self._tokens.create(user.id, token_hash, refresh_token_expires_at())
         return TokenResponse(
             access_token=access,
-            refresh_token=raw,
+            refresh_token=raw_token,
             expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         )
 
@@ -68,14 +78,14 @@ class AuthService:
         """
         stored = await self._tokens.get_valid_by_hash(hash_token(raw_token))
         if not stored:
-            raise AuthError("invalid_token")
+            raise AuthError(AuthError.INVALID_TOKEN)
         await self._tokens.revoke(stored.token_hash)
         access = create_access_token(str(stored.user_id))
-        raw, new_hash = generate_refresh_token()
-        await self._tokens.create(stored.user_id, new_hash, refresh_token_expires_at())
+        raw_token, token_hash = generate_refresh_token()
+        await self._tokens.create(stored.user_id, token_hash, refresh_token_expires_at())
         return TokenResponse(
             access_token=access,
-            refresh_token=raw,
+            refresh_token=raw_token,
             expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         )
 

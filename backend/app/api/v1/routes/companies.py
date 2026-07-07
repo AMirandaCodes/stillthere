@@ -1,12 +1,11 @@
-import math
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser, DbSession, PaginationDep
-from app.repositories.company_repository import CompanyRepository
 from app.schemas.common import PaginatedResponse
 from app.schemas.company import CompanyResponse
+from app.services.company_service import CompanyService
 
 router = APIRouter()
 
@@ -21,29 +20,11 @@ async def list_companies(
     db: DbSession,
     _: CurrentUser,
 ) -> PaginatedResponse[CompanyResponse]:
-    repo = CompanyRepository(db)
-    rows = await repo.list_with_verification_count(
-        offset=pagination.offset, limit=pagination.page_size
-    )
-    total = await repo.count()
-
-    items = [
-        CompanyResponse(
-            id=company.id,
-            name=company.name,
-            domain=company.domain,
-            website=company.website,
-            total_verifications=count,
-            created_at=company.created_at,
-        )
-        for company, count in rows
-    ]
-    return PaginatedResponse(
-        items=items,
-        total=total,
+    return await CompanyService(db).list_with_counts(
+        offset=pagination.offset,
+        limit=pagination.page_size,
         page=pagination.page,
         page_size=pagination.page_size,
-        total_pages=math.ceil(total / pagination.page_size) if total else 0,
     )
 
 
@@ -57,22 +38,10 @@ async def get_company(
     db: DbSession,
     _: CurrentUser,
 ) -> CompanyResponse:
-    repo = CompanyRepository(db)
-    company = await repo.get_by_id(company_id)
-
-    if company is None:
+    result = await CompanyService(db).get(company_id)
+    if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Company {company_id} not found",
         )
-
-    total_verifications = await repo.get_verification_count(company_id)
-
-    return CompanyResponse(
-        id=company.id,
-        name=company.name,
-        domain=company.domain,
-        website=company.website,
-        total_verifications=total_verifications,
-        created_at=company.created_at,
-    )
+    return result

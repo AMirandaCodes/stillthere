@@ -54,7 +54,15 @@ export default function BatchJobsPage() {
     setExporting(jobId);
     setExportError(null);
     try {
-      await batchService.exportCsv(jobId);
+      const blob = await batchService.exportCsv(jobId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `batch_${jobId}_results.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (err) {
       setExportError(err instanceof Error ? err.message : "Export failed. Please try again.");
     } finally {

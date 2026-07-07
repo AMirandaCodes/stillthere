@@ -33,7 +33,8 @@ from app.models.evidence_source import EvidenceSource
 from app.models.search import Search
 from app.models.verification_result import VerificationResult
 from app.tasks.celery_app import celery_app
-from app.tasks.pipeline import PipelineResult, PipelineError, apply_pipeline_result, run_pipeline
+from app.tasks.pipeline import PipelineResult, PipelineError, run_pipeline
+from app.tasks.result_mapper import apply_pipeline_result
 
 logger = get_logger(__name__)
 

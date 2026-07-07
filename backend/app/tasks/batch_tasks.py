@@ -55,7 +55,8 @@ from app.models.job_result import JobResult
 from app.models.search import Search
 from app.models.verification_result import VerificationResult
 from app.tasks.celery_app import celery_app
-from app.tasks.pipeline import PipelineError, apply_pipeline_result, run_pipeline
+from app.tasks.pipeline import PipelineError, run_pipeline
+from app.tasks.result_mapper import apply_pipeline_result
 
 logger = get_logger(__name__)
 

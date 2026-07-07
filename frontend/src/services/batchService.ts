@@ -25,15 +25,8 @@ export const batchService = {
     return getPaginated<JobResult>(`/v1/batch/${jobId}/results`, page, pageSize);
   },
 
-  async exportCsv(jobId: string): Promise<void> {
+  async exportCsv(jobId: string): Promise<Blob> {
     const res = await api.get(`/v1/batch/${jobId}/export`, { responseType: "blob" });
-    const url = URL.createObjectURL(res.data as Blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `batch_${jobId}_results.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    return res.data as Blob;
   },
 };

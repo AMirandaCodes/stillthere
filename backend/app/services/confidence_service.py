@@ -39,6 +39,8 @@ _LEVEL_THRESHOLDS: list[tuple[int, ConfidenceLevel]] = [
     (0,  ConfidenceLevel.LOW),
 ]
 
+_DEFAULT_FIELD_WEIGHT = 10
+
 
 @dataclass
 class ConfidenceResult:
@@ -58,9 +60,11 @@ class ConfidenceService:
         self,
         source_weights: dict[EvidenceSourceType, int] | None = None,
         level_thresholds: list[tuple[int, ConfidenceLevel]] | None = None,
+        field_weight: int = _DEFAULT_FIELD_WEIGHT,
     ) -> None:
         self._weights = source_weights or _SOURCE_WEIGHTS
         self._thresholds = level_thresholds or _LEVEL_THRESHOLDS
+        self._field_weight = field_weight
 
     def score(
         self,
@@ -93,11 +97,10 @@ class ConfidenceService:
             },
         )
 
-    @staticmethod
-    def _field_score(tri_states: dict[str, TriState]) -> int:
-        """10 points per field with a definite yes/no answer (max 50)."""
+    def _field_score(self, tri_states: dict[str, TriState]) -> int:
+        """field_weight points per field with a definite yes/no answer (max 50)."""
         determined = sum(1 for v in tri_states.values() if v != TriState.UNCLEAR)
-        return determined * 10
+        return determined * self._field_weight
 
     def _source_score(self, source_types: list[EvidenceSourceType]) -> int:
         """Sum source quality weights, capped at 50."""

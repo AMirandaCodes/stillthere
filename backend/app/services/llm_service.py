@@ -25,7 +25,7 @@ import anthropic
 from pydantic import BaseModel, ValidationError, field_validator
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
-from app.core.circuit_breakers import CircuitBreakerOpen, anthropic_breaker
+from app.core.circuit_breakers import CircuitBreaker, CircuitBreakerOpen, anthropic_breaker
 from app.core.logging import get_logger
 from app.models.enums import EvidenceSourceType, TriState
 from app.services.evidence_service import PageContent
@@ -147,9 +147,11 @@ class LLMService:
         api_key: str,
         model: str = _DEFAULT_MODEL,
         client: anthropic.AsyncAnthropic | None = None,
+        breaker: CircuitBreaker | None = None,
     ) -> None:
         self._model = model
         self._client = client or anthropic.AsyncAnthropic(api_key=api_key)
+        self._breaker = breaker if breaker is not None else anthropic_breaker
 
     @retry(
         retry=retry_if_exception(_is_retriable_llm),
@@ -173,7 +175,7 @@ class LLMService:
         fast-fail for 120 s with CircuitBreakerOpen, which is not retried.
         Returns all-unclear defaults only on JSON parse failure.
         """
-        if anthropic_breaker.is_open():
+        if self._breaker.is_open():
             raise CircuitBreakerOpen(
                 "Anthropic circuit breaker open — LLM temporarily unavailable"
             )
@@ -187,15 +189,15 @@ class LLMService:
                 messages=[{"role": "user", "content": prompt}],
                 timeout=30.0,
             )
-            anthropic_breaker.record_success()
+            self._breaker.record_success()
         except anthropic.APIStatusError as exc:
             if exc.status_code < 500:
                 raise  # 4xx: caller/config error; don't trip the circuit
-            anthropic_breaker.record_failure()
+            self._breaker.record_failure()
             logger.error("LLM API server error", status=exc.status_code, error=str(exc))
             raise
         except (anthropic.APIConnectionError, anthropic.APITimeoutError) as exc:
-            anthropic_breaker.record_failure()
+            self._breaker.record_failure()
             logger.error("LLM API connection/timeout error", error=str(exc))
             raise
         except Exception as exc:

@@ -2,11 +2,11 @@
 BatchService — CSV batch verification orchestration.
 
 Responsibilities:
-  - Parse and validate uploaded CSV files
+  - Parse and validate uploaded CSV files (delegated to csv_parser)
   - Create BatchJob, Search, VerificationResult, and JobResult records
   - Dispatch process_batch_job Celery task (commit-before-dispatch pattern)
   - Provide progress polling and paginated result reads
-  - Stream results as a CSV export
+  - Stream results as a CSV export (delegated to csv_export)
 
 CSV format:
   Required columns (case-insensitive): Name, Company
@@ -16,9 +16,6 @@ Row handling:
   - Rows with empty Name or Company → JobResult(status=SKIPPED), counted immediately
   - Valid rows → JobResult(status=PENDING), processed by Celery workers
 """
-import csv
-import io
-from typing import AsyncGenerator
 from uuid import UUID
 
 from fastapi import UploadFile
@@ -28,8 +25,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.core.utils import normalise_name
-from app.db.session import AsyncSessionLocal
+from app.core.utils import normalize_name
 from app.models.batch_job import BatchJob
 from app.models.company import Company
 from app.models.contact import Contact
@@ -41,78 +37,14 @@ from app.repositories.contact_repository import ContactRepository
 from app.repositories.company_repository import CompanyRepository
 from app.repositories.verification_repository import VerificationRepository
 from app.schemas.batch import BatchJobResponse, JobResultResponse
+from app.schemas.builders import build_summary
 from app.schemas.common import PaginatedResponse
-
-from app.services.verification_service import build_summary
+from app.services.csv_parser import BatchValidationError, clean, parse_csv, validate_columns
 
 logger = get_logger(__name__)
 
 _MAX_CSV_BYTES = 5 * 1024 * 1024  # 5 MB guard
-_REQUIRED_COLS = frozenset({"name", "company"})
-
-
-class BatchValidationError(ValueError):
-    """Raised when the uploaded CSV fails structural validation."""
-
-
-# ── Pure CSV helpers (independently testable) ─────────────────────────────────
-
-def parse_csv(text: str) -> tuple[list[str], list[dict[str, str]]]:
-    """
-    Parse CSV text into (normalised_headers, rows).
-
-    Headers are lowercased and stripped.  Rows with all-empty values are excluded.
-    """
-    reader = csv.DictReader(io.StringIO(text.lstrip("﻿")))
-    raw_fields = reader.fieldnames or []
-    headers = [h.strip().lower() for h in raw_fields if h is not None]
-    rows: list[dict[str, str]] = []
-    for row in reader:
-        normalised = {
-            k.strip().lower(): (v or "").strip()
-            for k, v in row.items()
-            if k is not None
-        }
-        if any(normalised.values()):
-            rows.append(normalised)
-    return headers, rows
-
-
-def validate_columns(headers: list[str]) -> None:
-    """Raise BatchValidationError if required columns are absent."""
-    missing = _REQUIRED_COLS - set(headers)
-    if missing:
-        raise BatchValidationError(
-            f"CSV is missing required column(s): {', '.join(sorted(missing))}. "
-            "Expected headers: Name, Company (case-insensitive). Email is optional."
-        )
-
-
-def clean(value: str) -> str:
-    return value.strip()
-
-
-# ── CSV row builder ───────────────────────────────────────────────────────────
-
-def _csv_row(jr: JobResult) -> list:
-    """Build one CSV row from a fully-loaded JobResult."""
-    raw = jr.raw_csv_row or {}
-    vr = jr.verification_result
-    return [
-        jr.row_number,
-        raw.get("name", ""),
-        raw.get("company", ""),
-        raw.get("email", ""),
-        jr.status.value,
-        vr.person_found.value       if vr else "",
-        vr.appears_associated.value if vr else "",
-        vr.found_on_website.value   if vr else "",
-        vr.company_active.value     if vr else "",
-        vr.email_match.value        if vr else "",
-        vr.confidence_score         if vr else "",
-        vr.confidence_level.value   if vr else "",
-        jr.error_message or (vr.error_message if vr else "") or "",
-    ]
+_CHUNK_SIZE = 64 * 1024            # 64 KiB read buffer
 
 
 # ── Response builder ───────────────────────────────────────────────────────────
@@ -133,11 +65,17 @@ def _build_job_result_response(jr: JobResult) -> JobResultResponse:
 # ── Service ────────────────────────────────────────────────────────────────────
 
 class BatchService:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        contact_repo: ContactRepository | None = None,
+        company_repo: CompanyRepository | None = None,
+        verification_repo: VerificationRepository | None = None,
+    ) -> None:
         self._session = session
-        self._contacts = ContactRepository(session)
-        self._companies = CompanyRepository(session)
-        self._verifications = VerificationRepository(session)
+        self._contacts = contact_repo or ContactRepository(session)
+        self._companies = company_repo or CompanyRepository(session)
+        self._verifications = verification_repo or VerificationRepository(session)
 
     # ── Upload ─────────────────────────────────────────────────────────────────
 
@@ -150,7 +88,7 @@ class BatchService:
         """
         chunks: list[bytes] = []
         total = 0
-        while chunk := await file.read(65536):
+        while chunk := await file.read(_CHUNK_SIZE):
             total += len(chunk)
             if total > _MAX_CSV_BYTES:
                 raise BatchValidationError("File exceeds the 5 MB size limit.")
@@ -195,23 +133,23 @@ class BatchService:
         }
         contact_by_email: dict[str, Contact] = {}
         if bulk_emails:
-            for c in (await self._session.execute(
+            for contact in (await self._session.execute(
                 select(Contact).where(Contact.email.in_(bulk_emails))
             )).scalars():
-                if c.email:
-                    contact_by_email[c.email] = c
+                if contact.email:
+                    contact_by_email[contact.email] = contact
 
         bulk_norm_companies = {
-            normalise_name(company)
+            normalize_name(company)
             for name, company, _ in valid_pairs
             if name and company
         }
         company_by_norm: dict[str, Company] = {}
         if bulk_norm_companies:
-            for co in (await self._session.execute(
+            for company in (await self._session.execute(
                 select(Company).where(Company.normalized_name.in_(bulk_norm_companies))
             )).scalars():
-                company_by_norm[co.normalized_name] = co
+                company_by_norm[company.normalized_name] = company
 
         for i, row in enumerate(rows, start=2):  # row 1 = header line
             name = clean(row.get("name", ""))
@@ -240,7 +178,7 @@ class BatchService:
                 contact = await self._contacts.create(name)
 
             # Company: use pre-fetched cache, fall back to repo on cache miss
-            norm_co = normalise_name(company)
+            norm_co = normalize_name(company)
             company_obj = company_by_norm.get(norm_co)
             if company_obj is None:
                 company_obj, _ = await self._companies.get_or_create(company)
@@ -356,84 +294,8 @@ class BatchService:
         )
         rows = list((await self._session.execute(stmt)).scalars().all())
         return PaginatedResponse.build(
-            items=[_build_job_result_response(jr) for jr in rows],
+            items=[_build_job_result_response(job_result) for job_result in rows],
             total=total,
             offset=offset,
             limit=limit,
         )
-
-    # ── CSV export (streaming async generator) ─────────────────────────────────
-
-    @staticmethod
-    async def export_csv_stream(
-        job_id: UUID,
-        session_factory=None,
-    ) -> AsyncGenerator[bytes, None]:
-        """
-        Async generator that yields CSV bytes in pages of 100 rows.
-
-        Opens its own DB session so streaming works after the route handler's
-        injected session has closed (FastAPI StreamingResponse body is sent
-        after the route coroutine returns).
-
-        session_factory: override AsyncSessionLocal for testing — pass an
-        asynccontextmanager-wrapped fake session to avoid touching the real DB.
-        """
-        _COL_HEADERS = [
-            "row_number", "name", "company", "email",
-            "status",
-            "person_found", "appears_associated", "found_on_website",
-            "company_active", "email_match",
-            "confidence_score", "confidence_level",
-            "error_message",
-        ]
-        PAGE = 100
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-
-        writer.writerow(_COL_HEADERS)
-        yield buf.getvalue().encode()
-        buf.truncate(0)
-        buf.seek(0)
-
-        offset = 0
-        factory = session_factory or AsyncSessionLocal
-        async with factory() as session:
-            while True:
-                stmt = (
-                    select(JobResult)
-                    .where(JobResult.batch_job_id == job_id)
-                    .options(
-                        selectinload(JobResult.verification_result).options(
-                            selectinload(VerificationResult.search).options(
-                                selectinload(Search.contact),
-                                selectinload(Search.company),
-                            )
-                        )
-                    )
-                    .order_by(JobResult.row_number)
-                    .offset(offset)
-                    .limit(PAGE)
-                )
-                try:
-                    page_rows = list((await session.execute(stmt)).scalars().all())
-                except Exception as exc:
-                    logger.error(
-                        "CSV export DB error — truncating stream",
-                        job_id=str(job_id),
-                        offset=offset,
-                        error=str(exc),
-                    )
-                    break
-                if not page_rows:
-                    break
-
-                for jr in page_rows:
-                    writer.writerow(_csv_row(jr))
-
-                yield buf.getvalue().encode()
-                buf.truncate(0)
-                buf.seek(0)
-                offset += PAGE
-                if len(page_rows) < PAGE:
-                    break
