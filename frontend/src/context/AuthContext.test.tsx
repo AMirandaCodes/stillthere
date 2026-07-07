@@ -19,7 +19,7 @@ vi.mock("@/services/authService", () => ({
 import { authService } from "@/services/authService";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mock = authService as Record<string, ReturnType<typeof vi.fn>>;
+const mock = authService as unknown as Record<string, ReturnType<typeof vi.fn>>;
 
 const wrapper = ({ children }: { children: ReactNode }) => (
   <AuthProvider>{children}</AuthProvider>

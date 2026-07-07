@@ -27,7 +27,7 @@ const withUser = {
   register: vi.fn(),
 };
 
-function renderWithRouter(authState: typeof noUser, initialPath = "/protected") {
+function renderWithRouter(authState: typeof noUser | typeof withUser, initialPath = "/protected") {
   mockUseAuth.mockReturnValue(authState);
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
