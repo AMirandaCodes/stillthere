@@ -60,6 +60,15 @@ async def get_current_user(
             detail="User not found or inactive",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    # Reject tokens issued before a credential-change invalidation timestamp (AUTH-06).
+    if user.token_issued_before is not None:
+        iat = payload.get("iat")
+        if iat is not None and iat < user.token_issued_before.timestamp():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session invalidated — please log in again",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
     return user
 
 
@@ -102,6 +111,10 @@ async def get_optional_user(
     user = await UserRepository(db).get_by_id(user_id)
     if not user or not user.is_active:
         return None
+    if user.token_issued_before is not None:
+        iat = payload.get("iat")
+        if iat is not None and iat < user.token_issued_before.timestamp():
+            return None
     return user
 
 

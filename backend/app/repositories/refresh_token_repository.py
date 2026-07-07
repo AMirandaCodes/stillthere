@@ -39,6 +39,17 @@ class RefreshTokenRepository(BaseRepository[RefreshToken]):
         )
         await self.session.flush()
 
+    async def get_by_hash(self, token_hash: str) -> RefreshToken | None:
+        """Return the token regardless of revocation/expiry status.
+
+        Used by refresh() to detect when a previously-rotated token is reused —
+        a potential theft indicator that triggers session-family revocation (AUTH-02).
+        """
+        result = await self.session.execute(
+            select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+        )
+        return result.scalar_one_or_none()
+
     async def revoke_all_for_user(self, user_id: UUID) -> None:
         """Revoke every active token for a user — used for 'log out everywhere'."""
         await self.session.execute(

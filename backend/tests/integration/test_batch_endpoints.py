@@ -136,11 +136,11 @@ class TestListBatchJobs:
         """A batch job uploaded by another user must not appear in the current user's list."""
         await client.post(
             "/api/v1/auth/register",
-            json={"email": "other@example.com", "full_name": "Other User", "password": "otherpassword"},
+            json={"email": "other@example.com", "full_name": "Other User", "password": "Otherpass1"},
         )
         login = await client.post(
             "/api/v1/auth/login",
-            json={"email": "other@example.com", "password": "otherpassword"},
+            json={"email": "other@example.com", "password": "Otherpass1"},
         )
         other_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 

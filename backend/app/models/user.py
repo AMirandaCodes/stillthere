@@ -1,6 +1,7 @@
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Boolean, Index
+from sqlalchemy import Boolean, DateTime, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
@@ -19,6 +20,11 @@ class User(BaseModel):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # is_admin retained for future use — no route guards enforced at this stage
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Set on password change to invalidate all tokens issued before that moment (AUTH-06).
+    # NULL means no invalidation has been performed.
+    token_issued_before: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Relationships
     searches: Mapped[list["Search"]] = relationship("Search", back_populates="user")

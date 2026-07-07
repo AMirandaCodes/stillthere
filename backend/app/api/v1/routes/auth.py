@@ -13,6 +13,7 @@ so a stolen refresh token can only be used once before the legitimate client
 invalidates it on next use.
 """
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 
 from app.api.deps import DbSession, get_current_user
 from app.core.rate_limiting import limiter
@@ -22,21 +23,28 @@ from app.services.auth_service import AuthError, AuthService
 
 router = APIRouter()
 
+_REGISTER_OK = {"message": "If this email is new, your account has been created."}
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
-async def register(request: Request, payload: UserCreate, db: DbSession) -> User:
+async def register(request: Request, payload: UserCreate, db: DbSession) -> JSONResponse:
+    """
+    Register a new account.
+
+    Returns 201 regardless of whether the email is new or already registered —
+    the response body never distinguishes between the two cases to prevent
+    account enumeration via the registration endpoint (AUTH-05).
+    """
     try:
-        return await AuthService(db).register(payload.email, payload.full_name, payload.password)
+        await AuthService(db).register(payload.email, payload.full_name, payload.password)
     except AuthError as exc:
         match exc.code:
             case AuthError.EMAIL_EXISTS:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="An account with this email address already exists",
-                )
+                pass  # silent — do not leak account existence
             case _:
                 raise
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content=_REGISTER_OK)
 
 
 @router.post("/login", response_model=TokenResponse)
