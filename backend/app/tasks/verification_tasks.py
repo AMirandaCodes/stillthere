@@ -33,13 +33,13 @@ from app.models.evidence_source import EvidenceSource
 from app.models.search import Search
 from app.models.verification_result import VerificationResult
 from app.tasks.celery_app import celery_app
-from app.tasks.pipeline import PipelineResult, _PipelineError, _apply_pipeline_result, run_pipeline
+from app.tasks.pipeline import PipelineResult, PipelineError, apply_pipeline_result, run_pipeline
 
 logger = get_logger(__name__)
 
 
 def _user_error_message(exc: Exception) -> str:
-    if isinstance(exc, _PipelineError):
+    if isinstance(exc, PipelineError):
         return "Search failed. The service may be temporarily unavailable — please try again."
     return "An unexpected error occurred during verification."
 
@@ -143,7 +143,7 @@ async def _run_verification_async(result_id: str) -> None:
             result.status = VerificationStatus.FAILED
             result.error_message = error_msg
         else:
-            _apply_pipeline_result(result, pipeline_result, session, result_uuid)
+            apply_pipeline_result(result, pipeline_result, session, result_uuid)
 
         await session.commit()
         logger.info(

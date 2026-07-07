@@ -5,11 +5,10 @@ Public surface (importable for tests):
   execute_pipeline   — pure async pipeline (injected services, no DB)
   run_pipeline       — convenience wrapper: wires services and calls execute_pipeline
   PipelineResult     — dataclass returned by execute_pipeline
+  PipelineServices   — groups the four service dependencies for execute_pipeline
   EvidenceData       — neutral evidence DTO used in PipelineResult
-
-Internal:
-  _PipelineError          — raised when all search queries fail
-  _apply_pipeline_result  — writes PipelineResult fields onto a VerificationResult ORM object
+  PipelineError      — raised when all search queries fail
+  apply_pipeline_result — writes PipelineResult fields onto a VerificationResult ORM object
 """
 import httpx
 from dataclasses import dataclass, field
@@ -31,7 +30,7 @@ from app.services.search_service import SearchProvider, SearchService
 logger = get_logger(__name__)
 
 
-class _PipelineError(RuntimeError):
+class PipelineError(RuntimeError):
     """Raised when the pipeline cannot proceed (e.g. all search queries failed)."""
 
 
@@ -58,15 +57,20 @@ class PipelineResult:
     raw_search_data: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class PipelineServices:
+    """Groups the four injected service dependencies for execute_pipeline."""
+    search: SearchProvider
+    evidence: EvidenceService
+    llm: LLMService
+    confidence: ConfidenceService
+
+
 async def execute_pipeline(
     name: str,
     company: str,
     email: str | None,
-    *,
-    search_service: SearchProvider,
-    evidence_service: EvidenceService,
-    llm_service: LLMService,
-    confidence_service: ConfidenceService,
+    services: PipelineServices,
 ) -> PipelineResult:
     """
     Run the full verification pipeline with injected services.
@@ -75,13 +79,13 @@ async def execute_pipeline(
     Designed for independent testability: pass mock services to exercise
     the pipeline without hitting any external API or DB.
 
-    Raises _PipelineError if all search queries fail (bad API key, etc.).
+    Raises PipelineError if all search queries fail (bad API key, etc.).
     """
     # ── Stage 1: Search ────────────────────────────────────────────────────────
-    search_results = await search_service.search(name, company, email)
+    search_results = await services.search.search(name, company, email)
 
     if not search_results.queries_run:
-        raise _PipelineError(
+        raise PipelineError(
             "All search queries failed — verify SERPER_API_KEY is correct"
         )
 
@@ -89,12 +93,12 @@ async def execute_pipeline(
 
     # ── Stage 2: Scrape ────────────────────────────────────────────────────────
     urls = [hit.url for hit in search_results.hits]
-    pages = await evidence_service.fetch_pages(urls)
-    fetched_ok = sum(1 for p in pages if p.fetch_ok)
-    logger.info("ScrapePhase complete", pages_fetched=fetched_ok, pages_total=len(pages))
+    pages = await services.evidence.fetch_pages(urls)
+    pages_fetched = sum(1 for p in pages if p.fetch_ok)
+    logger.info("ScrapePhase complete", pages_fetched=pages_fetched, pages_total=len(pages))
 
     # ── Stage 3: LLM analysis ──────────────────────────────────────────────────
-    analysis = await llm_service.analyse(name, company, email, search_results, pages)
+    analysis = await services.llm.analyse(name, company, email, search_results, pages)
     logger.info(
         "LLMPhase complete",
         person_found=analysis.person_found,
@@ -111,7 +115,7 @@ async def execute_pipeline(
         "email_match":        analysis.email_match,
     }
     source_types = [src.source_type for src in analysis.evidence_sources]
-    confidence = confidence_service.score(tri_states, source_types)
+    confidence = services.confidence.score(tri_states, source_types)
     logger.info("ScorePhase complete", score=confidence.score, level=confidence.level)
 
     evidence_data = [
@@ -147,38 +151,36 @@ async def run_pipeline(name: str, company: str, email: str | None) -> PipelineRe
     """Wire up services and run the pipeline. Used by both single and batch tasks."""
     settings = get_settings()
     async with httpx.AsyncClient() as http_client:
-        return await execute_pipeline(
-            name=name,
-            company=company,
-            email=email,
-            search_service=SearchService(
+        services = PipelineServices(
+            search=SearchService(
                 api_key=settings.SERPER_API_KEY,
                 http_client=http_client,
             ),
-            evidence_service=EvidenceService(http_client=http_client),
-            llm_service=LLMService(api_key=settings.ANTHROPIC_API_KEY),
-            confidence_service=ConfidenceService(),
+            evidence=EvidenceService(http_client=http_client),
+            llm=LLMService(api_key=settings.ANTHROPIC_API_KEY),
+            confidence=ConfidenceService(),
         )
+        return await execute_pipeline(name, company, email, services)
 
 
-def _apply_pipeline_result(
+def apply_pipeline_result(
     result: VerificationResult,
-    pipeline: PipelineResult,
+    pipeline_result: PipelineResult,
     session: AsyncSession,
     result_uuid: UUID,
 ) -> None:
     """Write all PipelineResult fields onto result and add EvidenceSource rows to session."""
     result.status = VerificationStatus.COMPLETE
-    result.person_found = pipeline.person_found
-    result.appears_associated = pipeline.appears_associated
-    result.found_on_website = pipeline.found_on_website
-    result.company_active = pipeline.company_active
-    result.email_match = pipeline.email_match
-    result.confidence_score = pipeline.confidence_score
-    result.confidence_level = pipeline.confidence_level
-    result.useful_links = pipeline.useful_links
-    result.raw_search_data = pipeline.raw_search_data
-    for src in pipeline.evidence_sources:
+    result.person_found = pipeline_result.person_found
+    result.appears_associated = pipeline_result.appears_associated
+    result.found_on_website = pipeline_result.found_on_website
+    result.company_active = pipeline_result.company_active
+    result.email_match = pipeline_result.email_match
+    result.confidence_score = pipeline_result.confidence_score
+    result.confidence_level = pipeline_result.confidence_level
+    result.useful_links = pipeline_result.useful_links
+    result.raw_search_data = pipeline_result.raw_search_data
+    for src in pipeline_result.evidence_sources:
         session.add(
             EvidenceSource(
                 verification_result_id=result_uuid,
