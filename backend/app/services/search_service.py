@@ -11,17 +11,26 @@ Individual query failures are non-fatal: logged and skipped so remaining
 queries still run.  Only when ALL queries fail is queries_run empty, which
 the pipeline treats as a configuration error (bad API key, etc.).
 
-Retry policy (tenacity): 5xx / network errors are retried up to 3 times with
-exponential back-off; 4xx errors (auth, rate limit) propagate immediately.
+Resilience:
+  - Redis cache (30-min TTL): repeated queries return cached results
+    instead of burning Serper quota.
+  - Tenacity retry: 3 attempts on 429 and 5xx / network errors,
+    exponential backoff 5–60 s; 4xx propagates immediately.
+  - Circuit breaker: opens after 5 consecutive retriable failures; stays
+    open for 60 s.  4xx does NOT trip the circuit.
 """
 import hashlib
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from app.core.circuit_breakers import CircuitBreakerOpen, serper_breaker
 from app.core.logging import get_logger
+
+if TYPE_CHECKING:
+    from app.services.cache_service import CacheService
 
 logger = get_logger(__name__)
 
@@ -79,16 +88,21 @@ class SearchService:
 
     Accepts an injected httpx.AsyncClient so the HTTP layer can be replaced
     with respx mocks during unit tests without real network calls.
+
+    Optional CacheService: when provided, query results are read from / written
+    to Redis (30-min TTL) so repeated identical queries don't burn Serper quota.
     """
 
     def __init__(
         self,
         api_key: str,
         http_client: httpx.AsyncClient,
+        cache: "CacheService | None" = None,
         max_results_per_query: int = 10,
     ) -> None:
         self._api_key = api_key
         self._client = http_client
+        self._cache = cache
         self._max_results = max_results_per_query
 
     async def search(
@@ -144,6 +158,63 @@ class SearchService:
         )
         return combined
 
+    async def _fetch_query(self, query_text: str) -> dict[str, Any]:
+        """
+        Return Serper results for query_text, reading from cache first.
+
+        Cache hit → return immediately (no quota used).
+        Cache miss → call Serper (with retry + circuit breaker), then cache the result.
+        """
+        cache_key = self.query_cache_key(query_text)
+
+        if self._cache:
+            cached = await self._cache.get_search_results(cache_key)
+            if cached is not None:
+                logger.debug("Search cache hit", query=query_text)
+                return cached
+
+        result = await self._call_serper(query_text)
+
+        if self._cache:
+            await self._cache.set_search_results(cache_key, result)
+
+        return result
+
+    @retry(
+        retry=retry_if_exception(_is_retriable),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=2, min=5, max=60),
+        reraise=True,
+    )
+    async def _call_serper(self, query_text: str) -> dict[str, Any]:
+        """POST one query to Serper. Retried on 5xx / network errors; 4xx propagates."""
+        if serper_breaker.is_open():
+            raise CircuitBreakerOpen(
+                "Serper circuit breaker open — service temporarily unavailable"
+            )
+        try:
+            response = await self._client.post(
+                SERPER_ENDPOINT,
+                headers={
+                    "X-API-KEY": self._api_key,
+                    "Content-Type": "application/json",
+                },
+                json={"q": query_text, "num": self._max_results},
+                timeout=15.0,
+            )
+            response.raise_for_status()
+            result = response.json()
+            serper_breaker.record_success()
+            return result
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code < 500:
+                raise  # 4xx: caller error; don't trip the circuit
+            serper_breaker.record_failure()
+            raise
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError):
+            serper_breaker.record_failure()
+            raise
+
     @staticmethod
     def _build_queries(
         name: str,
@@ -165,23 +236,3 @@ class SearchService:
         """Deterministic Redis key for a raw query string."""
         digest = hashlib.sha256(query_text.encode()).hexdigest()[:32]
         return f"stillthere:search:{digest}:results"
-
-    @retry(
-        retry=retry_if_exception(_is_retriable),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=2, min=5, max=60),
-        reraise=True,
-    )
-    async def _fetch_query(self, query_text: str) -> dict[str, Any]:
-        """POST one query to Serper. Retried on 5xx / network errors; 4xx propagates."""
-        response = await self._client.post(
-            SERPER_ENDPOINT,
-            headers={
-                "X-API-KEY": self._api_key,
-                "Content-Type": "application/json",
-            },
-            json={"q": query_text, "num": self._max_results},
-            timeout=15.0,
-        )
-        response.raise_for_status()
-        return response.json()

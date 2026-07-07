@@ -11,6 +11,7 @@ Public surface (importable for tests):
   apply_pipeline_result — writes PipelineResult fields onto a VerificationResult ORM object
 """
 import httpx
+import redis.asyncio as aioredis
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
@@ -22,12 +23,17 @@ from app.core.logging import get_logger
 from app.models.enums import ConfidenceLevel, EvidenceSourceType, TriState, VerificationStatus
 from app.models.evidence_source import EvidenceSource
 from app.models.verification_result import VerificationResult
+from app.services.cache_service import CacheService
 from app.services.confidence_service import ConfidenceService
 from app.services.evidence_service import EvidenceService
 from app.services.llm_service import LLMService
 from app.services.search_service import SearchProvider, SearchService
 
 logger = get_logger(__name__)
+
+# Client-level default timeout: safety net for any call that omits a per-call timeout.
+# Per-call values (Serper 15 s, page fetch 10 s, LLM 30 s) still take precedence.
+_HTTP_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
 
 
 class PipelineError(RuntimeError):
@@ -148,19 +154,47 @@ async def execute_pipeline(
 
 
 async def run_pipeline(name: str, company: str, email: str | None) -> PipelineResult:
-    """Wire up services and run the pipeline. Used by both single and batch tasks."""
+    """
+    Wire up services and run the pipeline. Used by both single and batch tasks.
+
+    Opens a short-lived Redis connection for the search result cache; closes it
+    after the pipeline completes regardless of success or failure.  If Redis is
+    unavailable the cache degrades gracefully to a no-op (CacheService contract).
+    """
     settings = get_settings()
-    async with httpx.AsyncClient() as http_client:
-        services = PipelineServices(
-            search=SearchService(
-                api_key=settings.SERPER_API_KEY,
-                http_client=http_client,
-            ),
-            evidence=EvidenceService(http_client=http_client),
-            llm=LLMService(api_key=settings.ANTHROPIC_API_KEY),
-            confidence=ConfidenceService(),
+
+    redis_client = None
+    try:
+        redis_client = aioredis.from_url(
+            settings.REDIS_URL,
+            encoding="utf-8",
+            decode_responses=True,
+            socket_timeout=2.0,
+            socket_connect_timeout=2.0,
         )
-        return await execute_pipeline(name, company, email, services)
+    except Exception:
+        pass  # cache degrades to no-op; pipeline still runs
+
+    try:
+        cache = CacheService(redis_client)
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as http_client:
+            services = PipelineServices(
+                search=SearchService(
+                    api_key=settings.SERPER_API_KEY,
+                    http_client=http_client,
+                    cache=cache,
+                ),
+                evidence=EvidenceService(http_client=http_client),
+                llm=LLMService(api_key=settings.ANTHROPIC_API_KEY),
+                confidence=ConfidenceService(),
+            )
+            return await execute_pipeline(name, company, email, services)
+    finally:
+        if redis_client is not None:
+            try:
+                await redis_client.aclose()
+            except Exception:
+                pass
 
 
 def apply_pipeline_result(

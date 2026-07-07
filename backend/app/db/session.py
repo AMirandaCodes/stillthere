@@ -5,10 +5,15 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
+# asyncpg command_timeout: abort any single statement after 10 s.
+# Prevents a slow query from blocking an asyncio task indefinitely.
+_CONNECT_ARGS = {"command_timeout": 10}
+
 engine = create_async_engine(
     settings.DATABASE_URL,
     pool_size=settings.DATABASE_POOL_SIZE,
     max_overflow=settings.DATABASE_MAX_OVERFLOW,
+    connect_args=_CONNECT_ARGS,
     echo=settings.DEBUG,
     future=True,
 )
@@ -28,6 +33,7 @@ AsyncSessionLocal = async_sessionmaker(
 _task_engine = create_async_engine(
     settings.DATABASE_URL,
     poolclass=NullPool,
+    connect_args=_CONNECT_ARGS,
     echo=settings.DEBUG,
     future=True,
 )

@@ -10,6 +10,12 @@ JSON parsing strategy (most to least permissive):
   2. Extract a ```json ... ``` fenced block
   3. Extract the first { ... } block via regex
   4. Fall back to all-unclear defaults (raw_response stored for debugging)
+
+Resilience:
+  - Tenacity retry: up to 3 attempts on 429 and 5xx, exponential backoff 5–30 s
+  - Circuit breaker: opens after 3 consecutive retriable failures; stays open 120 s
+  - 4xx errors (auth, bad request) propagate immediately without retry or tripping
+    the circuit — they indicate a caller/config problem, not service instability
 """
 import json
 import re
@@ -17,7 +23,9 @@ from typing import Any
 
 import anthropic
 from pydantic import BaseModel, ValidationError, field_validator
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from app.core.circuit_breakers import CircuitBreakerOpen, anthropic_breaker
 from app.core.logging import get_logger
 from app.models.enums import EvidenceSourceType, TriState
 from app.services.evidence_service import PageContent
@@ -61,6 +69,13 @@ RULES — follow exactly:
 """
 
 
+def _is_retriable_llm(exc: BaseException) -> bool:
+    """Tenacity predicate: retry 429 and 5xx; never retry 4xx or CircuitBreakerOpen."""
+    if isinstance(exc, anthropic.APIStatusError):
+        return exc.status_code == 429 or exc.status_code >= 500
+    return isinstance(exc, (anthropic.APIConnectionError, anthropic.APITimeoutError))
+
+
 # ── Output schema ──────────────────────────────────────────────────────────────
 
 class LLMEvidenceSource(BaseModel):
@@ -71,10 +86,10 @@ class LLMEvidenceSource(BaseModel):
 
     @field_validator("source_type", mode="before")
     @classmethod
-    def coerce_source_type(cls, v: Any) -> str:
+    def coerce_source_type(cls, value: Any) -> str:
         valid = {e.value for e in EvidenceSourceType}
-        if isinstance(v, str) and v in valid:
-            return v
+        if isinstance(value, str) and value in valid:
+            return value
         return EvidenceSourceType.OTHER.value
 
 
@@ -91,11 +106,11 @@ class LLMAnalysisResult(BaseModel):
 
     @field_validator("useful_links", mode="before")
     @classmethod
-    def filter_invalid_urls(cls, v: Any) -> dict[str, str]:
-        if not isinstance(v, dict):
+    def filter_invalid_urls(cls, value: Any) -> dict[str, str]:
+        if not isinstance(value, dict):
             return {}
         result = {}
-        for k, url in v.items():
+        for k, url in value.items():
             if not isinstance(url, str) or not url.startswith(("http://", "https://")):
                 continue
             # LinkedIn URLs in useful_links must be personal /in/ profiles.
@@ -111,9 +126,9 @@ class LLMAnalysisResult(BaseModel):
         mode="before",
     )
     @classmethod
-    def coerce_tristate(cls, v: Any) -> str:
-        if isinstance(v, str) and v.lower() in {e.value for e in TriState}:
-            return v.lower()
+    def coerce_tristate(cls, value: Any) -> str:
+        if isinstance(value, str) and value.lower() in {e.value for e in TriState}:
+            return value.lower()
         return TriState.UNCLEAR.value
 
 
@@ -136,6 +151,12 @@ class LLMService:
         self._model = model
         self._client = client or anthropic.AsyncAnthropic(api_key=api_key)
 
+    @retry(
+        retry=retry_if_exception(_is_retriable_llm),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=2, min=5, max=30),
+        reraise=True,
+    )
     async def analyse(
         self,
         name: str,
@@ -146,9 +167,17 @@ class LLMService:
     ) -> LLMAnalysisResult:
         """
         Send collected evidence to Claude and return a structured analysis.
-        Raises on API/network failure — task layer writes FAILED status.
+
+        Retried up to 3 times on 429 / 5xx (exponential backoff 5–30 s).
+        Circuit breaker opens after 3 consecutive retriable failures; calls
+        fast-fail for 120 s with CircuitBreakerOpen, which is not retried.
         Returns all-unclear defaults only on JSON parse failure.
         """
+        if anthropic_breaker.is_open():
+            raise CircuitBreakerOpen(
+                "Anthropic circuit breaker open — LLM temporarily unavailable"
+            )
+
         prompt = self.build_prompt(name, company, email, search_results, pages)
         try:
             message = await self._client.messages.create(
@@ -158,9 +187,21 @@ class LLMService:
                 messages=[{"role": "user", "content": prompt}],
                 timeout=30.0,
             )
+            anthropic_breaker.record_success()
+        except anthropic.APIStatusError as exc:
+            if exc.status_code < 500:
+                raise  # 4xx: caller/config error; don't trip the circuit
+            anthropic_breaker.record_failure()
+            logger.error("LLM API server error", status=exc.status_code, error=str(exc))
+            raise
+        except (anthropic.APIConnectionError, anthropic.APITimeoutError) as exc:
+            anthropic_breaker.record_failure()
+            logger.error("LLM API connection/timeout error", error=str(exc))
+            raise
         except Exception as exc:
             logger.error("LLM API call failed", error=str(exc))
             raise
+
         return self._parse_response(message.content[0].text)
 
     @staticmethod

@@ -35,7 +35,9 @@ _SKIP_EXTENSIONS = frozenset(
 _SOCIAL_SKIP = frozenset({"facebook.com", "twitter.com", "instagram.com", "tiktok.com", "youtube.com"})
 
 
-def _is_network_error(exc: BaseException) -> bool:
+def _is_retriable_page(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in (429, 502, 503, 504)
     return isinstance(exc, (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError))
 
 
@@ -92,7 +94,7 @@ class EvidenceService:
         return PageContent(url=url, title=title, text=text[:MAX_TEXT_CHARS], fetch_ok=True)
 
     @retry(
-        retry=retry_if_exception(_is_network_error),
+        retry=retry_if_exception(_is_retriable_page),
         stop=stop_after_attempt(2),
         wait=wait_exponential(multiplier=1, min=1, max=5),
         reraise=True,

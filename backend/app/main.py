@@ -28,7 +28,11 @@ async def lifespan(app: FastAPI):
     # Initialise Redis connection pool (used by CacheService and Celery)
     try:
         app.state.redis = aioredis.from_url(
-            settings.REDIS_URL, encoding="utf-8", decode_responses=True
+            settings.REDIS_URL,
+            encoding="utf-8",
+            decode_responses=True,
+            socket_timeout=2.0,          # abort a hung command after 2 s
+            socket_connect_timeout=2.0,  # fail fast if Redis is unreachable
         )
         await app.state.redis.ping()
         logger.info("Redis connected", url=settings.REDIS_URL)
