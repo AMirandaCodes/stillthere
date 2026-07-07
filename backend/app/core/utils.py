@@ -1,7 +1,7 @@
 import re
 
 
-def normalise_name(value: str) -> str:
+def normalize_name(value: str) -> str:
     """Collapse whitespace and lowercase a name string for deduplication."""
     return re.sub(r"\s+", " ", value.strip().lower())
 

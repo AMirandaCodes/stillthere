@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.utils import normalise_name
+from app.core.utils import normalize_name
 from app.models.company import Company
 from app.models.search import Search
 from app.models.verification_result import VerificationResult
@@ -29,9 +29,9 @@ class CompanyRepository(BaseRepository[Company]):
         Dedup on normalised name.
         Returns (company, was_created).
         """
-        normalised = normalise_name(name)
+        normalized = normalize_name(name)
         return await self._get_or_create(
-            fetch=lambda: self.get_by_normalized_name(normalised),
+            fetch=lambda: self.get_by_normalized_name(normalized),
             build=lambda: Company(name=name),
         )
 
@@ -75,4 +75,4 @@ class CompanyRepository(BaseRepository[Company]):
             .limit(limit)
         )
         rows = await self.session.execute(stmt)
-        return [(co, cnt) for co, cnt in rows.all()]
+        return [(company, count) for company, count in rows.all()]
