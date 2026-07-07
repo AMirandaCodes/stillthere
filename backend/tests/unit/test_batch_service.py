@@ -1,13 +1,15 @@
 """
-Unit tests for batch_service pure helpers.
+Unit tests for CSV parsing utilities (app.services.csv_parser).
 
-These functions have no DB dependencies — instantiate them directly.
+These functions have no DB dependencies — call them directly.
 The DB-interaction methods (upload, get_job, etc.) are covered in the
-integration tests.
+integration tests (test_batch_pipeline.py, test_batch_endpoints.py).
+
+Note: functions were extracted from BatchService into csv_parser (SP-01).
 """
 import pytest
 
-from app.services.batch_service import (
+from app.services.csv_parser import (
     BatchValidationError,
     clean,
     parse_csv,

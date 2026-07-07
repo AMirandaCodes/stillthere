@@ -174,3 +174,26 @@ async def auth_headers(client: AsyncClient) -> dict[str, str]:
     assert login.status_code == 200, f"Login failed: {login.text}"
 
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
+@pytest.fixture(autouse=True)
+def reset_circuit_breakers():
+    """
+    Reset module-level circuit breaker singletons between tests.
+
+    Without this, a test that trips a breaker leaves it OPEN for the next test,
+    causing false failures when the breaker is fast-failing calls that would
+    otherwise succeed.
+    """
+    from app.core.circuit_breakers import anthropic_breaker, serper_breaker
+
+    def _reset(b):
+        b._failures = 0
+        b._opened_at = 0.0
+        b._open = False
+
+    _reset(serper_breaker)
+    _reset(anthropic_breaker)
+    yield
+    _reset(serper_breaker)
+    _reset(anthropic_breaker)

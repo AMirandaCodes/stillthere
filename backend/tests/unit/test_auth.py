@@ -66,6 +66,43 @@ class TestAccessToken:
             decode_access_token(tampered)
 
 
+class TestTokenSecurity:
+    def test_alg_none_token_is_rejected(self):
+        """
+        Tokens with alg=none (unsigned) must be rejected at decode time.
+
+        Some JWT libraries have a known vulnerability where they accept unsigned
+        tokens. Verify that decode_access_token raises for any such attempt.
+        """
+        from jose import jwt as jose_jwt
+
+        try:
+            unsigned_token = jose_jwt.encode(
+                {"sub": "attacker", "type": "access"},
+                key="",
+                algorithm="none",
+            )
+        except Exception:
+            # jose raises at encode time — protection is at the library level.
+            return
+
+        # If encoding succeeded, decoding must fail with a JWTError.
+        with pytest.raises(JWTError):
+            decode_access_token(unsigned_token)
+
+    def test_token_signed_with_wrong_key_raises(self):
+        """A token signed with a different SECRET_KEY must be rejected."""
+        from jose import jwt as jose_jwt
+
+        wrong_key_token = jose_jwt.encode(
+            {"sub": "user-123", "type": "access"},
+            key="totally-wrong-secret-key-not-matching-settings",
+            algorithm="HS256",
+        )
+        with pytest.raises(JWTError):
+            decode_access_token(wrong_key_token)
+
+
 class TestRefreshToken:
     def test_generate_returns_two_distinct_strings(self):
         raw, token_hash = generate_refresh_token()

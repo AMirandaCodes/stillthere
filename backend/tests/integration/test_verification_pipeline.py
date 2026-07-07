@@ -32,7 +32,7 @@ from app.services.confidence_service import ConfidenceService
 from app.services.evidence_service import EvidenceService
 from app.services.llm_service import LLMService
 from app.services.search_service import SearchService, SERPER_ENDPOINT
-from app.tasks.pipeline import execute_pipeline, _PipelineError
+from app.tasks.pipeline import execute_pipeline, PipelineError, PipelineServices
 from app.tasks.verification_tasks import _run_verification_async
 from httpx import AsyncClient
 from tests.helpers import make_mock_llm_client
@@ -81,6 +81,21 @@ def _mock_llm_client(response_dict: dict | None = None) -> AsyncMock:
 
 @pytest.mark.asyncio
 class TestExecutePipeline:
+    """
+    Pure pipeline tests — all external I/O mocked via respx + AsyncMock.
+    execute_pipeline() receives a PipelineServices dataclass; no DB involved.
+    """
+
+    @staticmethod
+    def _services(http: httpx.AsyncClient, llm_response: dict | None = None) -> PipelineServices:
+        """Build a PipelineServices with mocked LLM and respx-intercepted HTTP."""
+        return PipelineServices(
+            search=SearchService(api_key="test", http_client=http),
+            evidence=EvidenceService(http_client=http),
+            llm=LLMService(api_key="test", client=_mock_llm_client(llm_response)),
+            confidence=ConfidenceService(),
+        )
+
     async def test_returns_correct_tristate_fields(self):
         with respx.mock() as router:
             router.post(SERPER_ENDPOINT).mock(
@@ -92,13 +107,7 @@ class TestExecutePipeline:
             )
             async with httpx.AsyncClient() as http:
                 result = await execute_pipeline(
-                    name="John Smith",
-                    company="Acme Ltd",
-                    email="john@acme.com",
-                    search_service=SearchService(api_key="test", http_client=http),
-                    evidence_service=EvidenceService(http_client=http),
-                    llm_service=LLMService(api_key="test", client=_mock_llm_client()),
-                    confidence_service=ConfidenceService(),
+                    "John Smith", "Acme Ltd", "john@acme.com", self._services(http)
                 )
 
         assert result.person_found == TriState.YES
@@ -117,13 +126,7 @@ class TestExecutePipeline:
             )
             async with httpx.AsyncClient() as http:
                 result = await execute_pipeline(
-                    name="John Smith",
-                    company="Acme Ltd",
-                    email=None,
-                    search_service=SearchService(api_key="test", http_client=http),
-                    evidence_service=EvidenceService(http_client=http),
-                    llm_service=LLMService(api_key="test", client=_mock_llm_client()),
-                    confidence_service=ConfidenceService(),
+                    "John Smith", "Acme Ltd", None, self._services(http)
                 )
 
         assert result.confidence_score > 0
@@ -140,13 +143,7 @@ class TestExecutePipeline:
             )
             async with httpx.AsyncClient() as http:
                 result = await execute_pipeline(
-                    name="John Smith",
-                    company="Acme Ltd",
-                    email=None,
-                    search_service=SearchService(api_key="test", http_client=http),
-                    evidence_service=EvidenceService(http_client=http),
-                    llm_service=LLMService(api_key="test", client=_mock_llm_client()),
-                    confidence_service=ConfidenceService(),
+                    "John Smith", "Acme Ltd", None, self._services(http)
                 )
 
         assert len(result.evidence_sources) >= 1
@@ -163,13 +160,7 @@ class TestExecutePipeline:
             )
             async with httpx.AsyncClient() as http:
                 result = await execute_pipeline(
-                    name="John Smith",
-                    company="Acme Ltd",
-                    email=None,
-                    search_service=SearchService(api_key="test", http_client=http),
-                    evidence_service=EvidenceService(http_client=http),
-                    llm_service=LLMService(api_key="test", client=_mock_llm_client()),
-                    confidence_service=ConfidenceService(),
+                    "John Smith", "Acme Ltd", None, self._services(http)
                 )
 
         assert "search_queries" in result.raw_search_data
@@ -178,25 +169,19 @@ class TestExecutePipeline:
         assert "confidence_breakdown" in result.raw_search_data
 
     async def test_raises_pipeline_error_when_all_queries_fail(self):
-        """If all Serper queries fail, execute_pipeline raises _PipelineError."""
+        """If all Serper queries return 4xx, execute_pipeline raises PipelineError."""
         with respx.mock() as router:
             router.post(SERPER_ENDPOINT).mock(
                 return_value=httpx.Response(401, json={"message": "Unauthorized"})
             )
             async with httpx.AsyncClient() as http:
-                with pytest.raises(_PipelineError, match="queries failed"):
+                with pytest.raises(PipelineError, match="queries failed"):
                     await execute_pipeline(
-                        name="John Smith",
-                        company="Acme Ltd",
-                        email=None,
-                        search_service=SearchService(api_key="bad-key", http_client=http),
-                        evidence_service=EvidenceService(http_client=http),
-                        llm_service=LLMService(api_key="test", client=_mock_llm_client()),
-                        confidence_service=ConfidenceService(),
+                        "John Smith", "Acme Ltd", None, self._services(http)
                     )
 
     async def test_completes_with_no_pages_fetched(self):
-        """Pipeline should complete even if all page fetches fail (all-unclear OK)."""
+        """Pipeline should complete even if all page fetches fail (all-unclear result)."""
         all_unclear_response = {
             **_LLM_FULL_RESPONSE,
             "person_found": "unclear",
@@ -214,16 +199,8 @@ class TestExecutePipeline:
             )
             async with httpx.AsyncClient() as http:
                 result = await execute_pipeline(
-                    name="John Smith",
-                    company="Acme Ltd",
-                    email=None,
-                    search_service=SearchService(api_key="test", http_client=http),
-                    evidence_service=EvidenceService(http_client=http),
-                    llm_service=LLMService(
-                        api_key="test",
-                        client=_mock_llm_client(all_unclear_response),
-                    ),
-                    confidence_service=ConfidenceService(),
+                    "John Smith", "Acme Ltd", None,
+                    self._services(http, llm_response=all_unclear_response),
                 )
 
         assert result.person_found == TriState.UNCLEAR

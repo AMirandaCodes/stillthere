@@ -141,3 +141,40 @@ class TestSourceScore:
         assert isinstance(result.score, int)
         assert isinstance(result.level, ConfidenceLevel)
         assert isinstance(result.breakdown, dict)
+
+
+# ── Injected field_weight (SP-06) ─────────────────────────────────────────────
+
+class TestFieldWeightInjection:
+    def test_custom_weight_scales_field_score(self):
+        svc = ConfidenceService(field_weight=5)
+        # 2 determined fields × 5 = 10; default would give 2 × 10 = 20
+        partial = {**_ALL_UNCLEAR, "person_found": TriState.YES, "company_active": TriState.NO}
+        result = svc.score(partial, [])
+        assert result.breakdown["field_determination"] == 10
+
+    def test_default_and_explicit_10_give_same_score(self):
+        svc_default = ConfidenceService()
+        svc_explicit = ConfidenceService(field_weight=10)
+        r1 = svc_default.score(_ALL_YES, [])
+        r2 = svc_explicit.score(_ALL_YES, [])
+        assert r1.score == r2.score
+
+    def test_zero_field_weight_makes_field_score_zero(self):
+        svc = ConfidenceService(field_weight=0)
+        result = svc.score(_ALL_YES, [EvidenceSourceType.PROFESSIONAL_PROFILE])
+        assert result.breakdown["field_determination"] == 0
+        # Only source quality contributes
+        assert result.score == result.breakdown["source_quality"]
+
+    def test_large_field_weight_capped_by_overall_100_limit(self):
+        svc = ConfidenceService(field_weight=25)
+        # 5 YES fields × 25 = 125; total capped at min(100, 125)
+        result = svc.score(_ALL_YES, [])
+        assert result.score == 100
+
+    def test_field_weight_20_level_is_high_with_no_sources(self):
+        svc = ConfidenceService(field_weight=20)
+        result = svc.score(_ALL_YES, [])
+        assert result.score == 100
+        assert result.level == ConfidenceLevel.HIGH
