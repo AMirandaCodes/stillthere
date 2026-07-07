@@ -92,7 +92,7 @@ PostgreSQL is the source of truth. Redis serves as the Celery broker, result bac
 | Repositories | `app/repositories/` | All DB queries; extend `BaseRepository[ModelT]` |
 | Models | `app/models/` | ORM definitions; all inherit `BaseModel` (UUID PK + timestamps) |
 | Schemas | `app/schemas/` | Pydantic request/response; separate from ORM models |
-| Tasks | `app/tasks/` | Celery tasks; sync wrapper → `asyncio.run()` → async orchestrator |
+| Tasks | `app/tasks/` | Celery tasks; sync wrapper → `asyncio.run()` → async orchestrator. `pipeline.py` holds the `PipelineServices` dataclass and `execute_pipeline()`; `result_mapper.py` holds `apply_pipeline_result()`. Both are imported by the task files, not called from routes. |
 
 ---
 
@@ -127,6 +127,10 @@ Tasks check `VerificationResult.status` on entry:
 - `COMPLETE` / `FAILED` → return immediately (safe to re-queue).
 - `RUNNING` → delete partial evidence, restart from scratch (crash-recovery).
 - `PENDING` → normal first run.
+
+### Circuit breakers are module-level singletons
+
+`app/core/circuit_breakers.py` exports `serper_breaker` and `anthropic_breaker` as module-level instances. Because Python modules are imported once, a test that trips a breaker leaves it OPEN for all subsequent tests in the same process. The `reset_circuit_breakers` `autouse=True` fixture in `tests/conftest.py` resets `_failures`, `_open`, and `_opened_at` before and after every test. If you add a new breaker singleton, add it to that fixture.
 
 ### Database credentials are not renamed
 

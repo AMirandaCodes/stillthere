@@ -73,6 +73,8 @@ The platform supports two workflows:
 
 - **asyncpg URL sanitisation** — Neon (and other managed PostgreSQL providers) issue libpq-style connection strings with `sslmode=require&channel_binding=require`. The asyncpg driver rejects both parameters. A `field_validator` on `DATABASE_URL` strips all libpq-only query parameters and re-adds `ssl=require` when SSL was originally requested, making the URL transparently compatible with asyncpg without requiring manual editing.
 
+- **Circuit breakers on external calls** — `serper_breaker` and `anthropic_breaker` are module-level singletons (CLOSED → OPEN → auto-reset) that stop cascading failures when the Serper or Anthropic APIs become unresponsive. The breakers trip after a configurable failure threshold and hold OPEN for a configurable reset window, allowing the upstream service time to recover before retrying. Both are reset between tests via an `autouse` conftest fixture to prevent state leakage.
+
 - **Savepoint-based test isolation** — Integration tests run inside a connection-level transaction. `session.commit()` calls create savepoints (via SQLAlchemy 2.x `join_transaction_mode="create_savepoint"`) rather than committing the outer transaction. `connection.rollback()` at teardown undoes all changes without any DDL between tests.
 
 ---
@@ -217,22 +219,25 @@ stillthere/
 ├── backend/
 │   ├── app/
 │   │   ├── api/v1/routes/           # HTTP handlers — no business logic, one service call each
-│   │   ├── core/                    # Config (pydantic-settings), logging, security helpers
+│   │   ├── core/                    # Config (pydantic-settings), auth, logging, security,
+│   │   │                            #   circuit_breakers (serper + anthropic breakers), utils
 │   │   ├── db/                      # Engine, session factories (API + Task), model registry
 │   │   ├── models/                  # SQLAlchemy ORM definitions + StrEnum types
 │   │   ├── repositories/            # All DB queries — one class per entity
 │   │   ├── schemas/                 # Pydantic request / response models
 │   │   ├── services/                # SearchService, EvidenceService, LLMService,
-│   │   │                            #   ConfidenceService, BatchService, CacheService,
-│   │   │                            #   RateLimitService, …
-│   │   ├── tasks/                   # Celery app + verification_tasks + batch_tasks
+│   │   │                            #   ConfidenceService, BatchService, CsvParser,
+│   │   │                            #   CsvExport, CompanyService, ContactService,
+│   │   │                            #   CacheService, RateLimitService
+│   │   ├── tasks/                   # celery_app, verification_tasks, batch_tasks,
+│   │   │                            #   pipeline (PipelineServices dataclass), result_mapper
 │   │   └── main.py                  # FastAPI factory, lifespan (Redis, CORS, rate limiting)
 │   ├── alembic/                     # Database migrations
 │   ├── docker/
 │   │   └── init-test-db.sql         # Creates contact_verification_test on first boot
 │   ├── tests/
 │   │   ├── conftest.py              # Fixtures — savepoint isolation, HTTP client, auth headers
-│   │   ├── unit/                    # 9 files — no DB; services tested with mocked I/O
+│   │   ├── unit/                    # 13 files — no DB; services tested with mocked I/O
 │   │   └── integration/             # 9 files — full HTTP stack + real DB via test client
 │   ├── .coveragerc
 │   ├── pytest.ini
@@ -240,9 +245,13 @@ stillthere/
 │   └── Dockerfile
 ├── frontend/
 │   └── src/
-│       ├── components/              # Spinner, TriStateBadge, StatusBadge, ConfidenceScore,
-│       │                            #   Pagination, WakeupHint, ProtectedRoute,
-│       │                            #   AdminRoute, Layout
+│       ├── components/              # ProtectedRoute, AdminRoute, ErrorBoundary
+│       │   ├── ui/                  #   Spinner, FullScreenSpinner, PageState,
+│       │   │                        #   TriStateBadge, StatusBadge, ConfidenceScore,
+│       │   │                        #   Pagination, WakeupHint
+│       │   ├── layout/              #   Layout (nav bar + Outlet)
+│       │   ├── batch/               #   Batch-specific sub-components
+│       │   └── verification/        #   Verification-specific sub-components
 │       ├── context/                 # AuthContext — session restore, login, logout
 │       ├── pages/                   # Login, Register, Home, VerificationResult,
 │       │                            #   SearchHistory, BatchUpload, BatchJobs, Admin
@@ -256,6 +265,7 @@ stillthere/
 │   ├── vitest.config.ts
 │   ├── package.json
 │   └── Dockerfile
+├── audits/                          # Code quality audit reports (architecture, SOLID, testing, …)
 ├── CLAUDE.md                        # AI assistant guidance (commands, architecture, constraints)
 ├── docker-compose.yml               # Full development stack — 6 services
 ├── docker-compose.dev.yml           # Dev overrides — hot-reload, debug logging
@@ -443,6 +453,7 @@ The application is deployed on Render's free tier:
 | 9 | ✅ Complete | Documentation |
 | 10 | ✅ Complete | Visual polish — Georgia font, teal/dark-green brand palette, centred layout |
 | 11 | ✅ Complete | Per-user rate limits, admin panel, LinkedIn profile filtering, Neon DB migration |
+| 12 | ✅ Complete | Code quality — SOLID refactoring, complexity reduction, naming/readability, error handling, design patterns, resilience (circuit breakers), testing suite expansion |
 
 ---
 
