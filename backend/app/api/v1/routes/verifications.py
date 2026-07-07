@@ -1,8 +1,9 @@
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 
 from app.api.deps import CurrentUser, DbSession, OptionalUser, PaginationDep, VerificationRateLimit
+from app.core.rate_limiting import limiter
 from app.schemas.common import PaginatedResponse
 from app.schemas.verification import (
     VerificationCreate,
@@ -61,14 +62,17 @@ async def list_verifications(
         "status is 'complete' or 'failed'."
     ),
 )
+@limiter.limit("30/minute")
 async def get_verification(
+    request: Request,
     verification_id: UUID,
     db: DbSession,
     # Intentionally unauthenticated: POST /verifications accepts OptionalUser
     # (guests can submit), so the polling endpoint must also be accessible
     # without auth. UUID v4 provides ~122 bits of entropy making enumeration
-    # infeasible. Frontend evidence links use rel="noreferrer" to prevent UUID
-    # leakage via Referer headers. (SEC-05 — Option B)
+    # infeasible. Rate-limited (AZ-02) to prevent bulk scraping of leaked UUIDs.
+    # Frontend evidence links use rel="noreferrer" to prevent UUID leakage via
+    # Referer headers. (SEC-05 — Option B)
 ) -> VerificationResultResponse:
     service = VerificationService(db)
     result = await service.get_result(verification_id)

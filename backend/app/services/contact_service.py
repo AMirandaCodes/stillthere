@@ -59,13 +59,20 @@ class ContactService:
             total_pages=math.ceil(total / page_size) if total else 0,
         )
 
-    async def get(self, contact_id: UUID) -> ContactResponse | None:
+    async def get(self, contact_id: UUID, user_id: UUID | None = None) -> ContactResponse | None:
         contact = await self._repo.get_with_recent_searches(contact_id)
         if contact is None:
             return None
 
+        # Filter searches to the requesting user so verification results from other
+        # users are never returned (AZ-01 / CWE-639). user_id=None means no filter
+        # (admin or internal use).
+        user_searches = [
+            s for s in contact.searches
+            if user_id is None or s.user_id == user_id
+        ]
         summaries: list[VerificationSummary] = []
-        for search in sorted(contact.searches, key=lambda s: s.created_at, reverse=True)[:10]:
+        for search in sorted(user_searches, key=lambda s: s.created_at, reverse=True)[:10]:
             latest = search.latest_result
             if latest:
                 summaries.append(build_summary(latest))

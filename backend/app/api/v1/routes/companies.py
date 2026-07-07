@@ -14,6 +14,11 @@ router = APIRouter()
     "",
     response_model=PaginatedResponse[CompanyResponse],
     summary="List all companies",
+    description=(
+        "Returns the platform-wide shared company directory. "
+        "Companies are deduped by normalised name across all users and represent "
+        "the organisations being researched — they are not per-user private records."
+    ),
 )
 async def list_companies(
     pagination: PaginationDep,

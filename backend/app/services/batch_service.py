@@ -278,8 +278,16 @@ class BatchService:
         )
 
     async def get_job_results(
-        self, job_id: UUID, offset: int, limit: int
+        self, job_id: UUID, offset: int, limit: int, user_id: UUID | None = None
     ) -> PaginatedResponse[JobResultResponse]:
+        # Defence-in-depth ownership re-check (AZ-05). Routes should always
+        # pre-check via get_job(), but this guard prevents regressions if the
+        # method is ever called without a prior ownership check.
+        if user_id is not None:
+            job = await self._session.get(BatchJob, job_id)
+            if job is None or job.user_id != user_id:
+                return PaginatedResponse.build(items=[], total=0, offset=offset, limit=limit)
+
         total: int = await self._session.scalar(
             select(func.count(JobResult.id)).where(JobResult.batch_job_id == job_id)
         ) or 0

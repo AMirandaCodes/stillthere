@@ -110,6 +110,7 @@ async def get_batch_job_results(
         job_id=job_id,
         offset=pagination.offset,
         limit=pagination.page_size,
+        user_id=current_user.id,
     )
 
 

@@ -14,6 +14,13 @@ router = APIRouter()
     "",
     response_model=PaginatedResponse[ContactSummaryResponse],
     summary="List all contacts",
+    description=(
+        "Returns the platform-wide shared contact directory. "
+        "Contacts represent external people being verified and are deduped by email "
+        "across all users — they are not per-user private records. "
+        "Verification result details in the contact detail endpoint are scoped to the "
+        "requesting user."
+    ),
 )
 async def list_contacts(
     pagination: PaginationDep,
@@ -38,9 +45,9 @@ async def list_contacts(
 async def get_contact(
     contact_id: UUID,
     db: DbSession,
-    _: CurrentUser,
+    current_user: CurrentUser,
 ) -> ContactResponse:
-    result = await ContactService(db).get(contact_id)
+    result = await ContactService(db).get(contact_id, user_id=current_user.id)
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
