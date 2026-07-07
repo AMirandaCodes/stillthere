@@ -102,6 +102,8 @@ class BatchService:
 
         headers, rows = parse_csv(text)
         validate_columns(headers)
+        if len(rows) == 0:
+            raise BatchValidationError("CSV contains no data rows. At least one row is required.")
 
         settings = get_settings()
         if len(rows) > settings.MAX_BATCH_SIZE:

@@ -273,7 +273,9 @@ async def _process_batch_row_async(batch_job_id: str, job_result_id: str) -> Non
             traceback=traceback.format_exc(),
         )
 
-    # Session 3: Write results
+    # Session 3: Write results + atomically increment counters.
+    # Counter increment is merged into this transaction (BL-01) so a worker
+    # crash cannot leave processed_records permanently short of total_records.
     if pipeline_result is None:
         outcome = RowOutcome.FAILED
     elif pipeline_result.confidence_score == 0:
@@ -296,9 +298,46 @@ async def _process_batch_row_async(batch_job_id: str, job_result_id: str) -> Non
             apply_pipeline_result(verification_result, pipeline_result, session, ver_id)
             job_result.status = JobResultStatus.SUCCESS
 
+        counter_result = await session.execute(
+            update(BatchJob)
+            .where(BatchJob.id == job_uuid)
+            .values(
+                processed_records=BatchJob.processed_records + 1,
+                failed_records=BatchJob.failed_records + (
+                    1 if outcome == RowOutcome.FAILED else 0
+                ),
+                unclear_records=BatchJob.unclear_records + (
+                    1 if outcome == RowOutcome.UNCLEAR else 0
+                ),
+                successful_records=BatchJob.successful_records + (
+                    1 if outcome == RowOutcome.SUCCESS else 0
+                ),
+            )
+            .returning(
+                BatchJob.processed_records,
+                BatchJob.total_records,
+                BatchJob.status,
+            )
+        )
+        counter_row = counter_result.one_or_none()
+        if (
+            counter_row is not None
+            and counter_row.processed_records >= counter_row.total_records
+            and counter_row.status == BatchJobStatus.RUNNING
+        ):
+            await session.execute(
+                update(BatchJob)
+                .where(
+                    BatchJob.id == job_uuid,
+                    BatchJob.status == BatchJobStatus.RUNNING,
+                )
+                .values(
+                    status=BatchJobStatus.COMPLETE,
+                    completed_at=datetime.now(timezone.utc),
+                )
+            )
+            logger.info("Batch job complete", batch_job_id=str(job_uuid))
         await session.commit()
-
-    await _increment_counters(job_uuid, outcome)
 
 
 async def _mark_batch_row_failed_direct(
@@ -391,7 +430,10 @@ async def _increment_counters(job_uuid: UUID, outcome: RowOutcome) -> None:
         ):
             await session.execute(
                 update(BatchJob)
-                .where(BatchJob.id == job_uuid)
+                .where(
+                    BatchJob.id == job_uuid,
+                    BatchJob.status == BatchJobStatus.RUNNING,
+                )
                 .values(
                     status=BatchJobStatus.COMPLETE,
                     completed_at=datetime.now(timezone.utc),

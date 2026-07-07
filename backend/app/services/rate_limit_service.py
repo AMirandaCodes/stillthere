@@ -61,7 +61,11 @@ class RateLimitService:
             count: int = results[0]
             return count <= limit, count, reset_at
         except Exception as exc:
-            logger.warning("rate_limit.check failed", key=key, error=str(exc))
+            logger.warning(
+                "rate_limit.check failed — quota bypassed (fail-open)",
+                key=key,
+                error=str(exc),
+            )
             return True, 0, reset_at  # fail open
 
     async def check_user(

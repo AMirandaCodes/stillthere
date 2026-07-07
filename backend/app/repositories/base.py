@@ -58,8 +58,8 @@ class BaseRepository(Generic[ModelT]):
         if existing:
             return existing, False
         try:
-            return await self.save(build()), True
+            async with self.session.begin_nested():
+                return await self.save(build()), True
         except IntegrityError:
-            await self.session.rollback()
             existing = await fetch()
             return existing, False  # type: ignore[return-value]
