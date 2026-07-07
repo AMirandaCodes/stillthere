@@ -243,9 +243,15 @@ class BatchService:
 
     # ── Read ───────────────────────────────────────────────────────────────────
 
-    async def get_job(self, job_id: UUID) -> BatchJobResponse | None:
+    async def get_job(
+        self, job_id: UUID, user_id: UUID | None = None
+    ) -> BatchJobResponse | None:
         batch_job = await self._session.get(BatchJob, job_id)
         if batch_job is None:
+            return None
+        # Ownership check: treat another user's job as not-found to avoid
+        # leaking that the UUID exists (CWE-639 IDOR).
+        if user_id is not None and batch_job.user_id != user_id:
             return None
         return BatchJobResponse.model_validate(batch_job)
 

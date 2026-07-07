@@ -1,9 +1,17 @@
+import re
 from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, field_validator
 
 from app.core.security import sanitise_name
+
+_COMMON_PASSWORDS = {
+    "password", "password1", "password123",
+    "12345678", "123456789", "1234567890",
+    "qwerty123", "qwertyui", "iloveyou",
+    "letmein1", "welcome1", "monkey123",
+}
 
 
 class UserCreate(BaseModel):
@@ -24,6 +32,12 @@ class UserCreate(BaseModel):
     def password_strength(cls, v: str) -> str:
         if len(v) < 8:
             raise ValueError("Password must be at least 8 characters")
+        if v.lower() in _COMMON_PASSWORDS:
+            raise ValueError("Password is too common — choose a more unique password")
+        if not re.search(r"[A-Za-z]", v):
+            raise ValueError("Password must contain at least one letter")
+        if not re.search(r"[0-9]", v):
+            raise ValueError("Password must contain at least one number")
         return v
 
 

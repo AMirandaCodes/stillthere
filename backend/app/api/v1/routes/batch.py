@@ -76,10 +76,10 @@ async def list_batch_jobs(
 async def get_batch_job(
     job_id: UUID,
     db: DbSession,
-    _: CurrentUser,
+    current_user: CurrentUser,
 ) -> BatchJobResponse:
     service = BatchService(db)
-    result = await service.get_job(job_id)
+    result = await service.get_job(job_id, user_id=current_user.id)
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -97,10 +97,10 @@ async def get_batch_job_results(
     job_id: UUID,
     pagination: PaginationDep,
     db: DbSession,
-    _: CurrentUser,
+    current_user: CurrentUser,
 ) -> PaginatedResponse[JobResultResponse]:
     service = BatchService(db)
-    batch_job = await service.get_job(job_id)
+    batch_job = await service.get_job(job_id, user_id=current_user.id)
     if batch_job is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -129,10 +129,10 @@ async def get_batch_job_results(
 async def export_batch_results(
     job_id: UUID,
     db: DbSession,
-    _: CurrentUser,
+    current_user: CurrentUser,
 ) -> StreamingResponse:
     service = BatchService(db)
-    batch_job = await service.get_job(job_id)
+    batch_job = await service.get_job(job_id, user_id=current_user.id)
     if batch_job is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

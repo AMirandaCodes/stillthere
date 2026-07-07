@@ -1,7 +1,9 @@
 """
 Authentication routes.
 
-Rate limits (per IP address via slowapi):
+Rate limits (per IP address via slowapi) — hardcoded in the @limiter.limit()
+decorators below. The RATE_LIMIT_REQUESTS / RATE_LIMIT_PERIOD config values
+do NOT control these; each endpoint has a deliberately different limit:
   POST /register  — 5 requests/minute   (spam signup protection)
   POST /login     — 10 requests/minute  (brute-force protection)
   POST /refresh   — 20 requests/minute  (normal refresh cadence)
@@ -28,7 +30,7 @@ async def register(request: Request, payload: UserCreate, db: DbSession) -> User
         return await AuthService(db).register(payload.email, payload.full_name, payload.password)
     except AuthError as exc:
         match exc.code:
-            case "email_exists":
+            case AuthError.EMAIL_EXISTS:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="An account with this email address already exists",
@@ -44,12 +46,12 @@ async def login(request: Request, payload: LoginRequest, db: DbSession) -> Token
         return await AuthService(db).login(payload.email, payload.password)
     except AuthError as exc:
         match exc.code:
-            case "invalid_credentials":
+            case AuthError.INVALID_CREDENTIALS:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Incorrect email or password",
                 )
-            case "inactive":
+            case AuthError.INACTIVE:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive"
                 )

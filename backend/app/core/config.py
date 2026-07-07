@@ -40,8 +40,9 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
     # --- Rate Limiting -----------------------------------------------------
-    RATE_LIMIT_REQUESTS: int = 30
-    RATE_LIMIT_PERIOD: int = 60   # seconds
+    # Per-endpoint SlowAPI limits are hardcoded in app/api/v1/routes/auth.py
+    # decorators (5/min register, 10/min login, 20/min refresh).
+    # Daily business-logic quotas are set via the fields below.
 
     # --- Verification Pipeline Settings ------------------------------------
     MAX_SEARCH_RESULTS: int = 10
@@ -126,6 +127,14 @@ class Settings(BaseSettings):
             raise ValueError("ANTHROPIC_API_KEY must be set in production (APP_ENV=production)")
         if not self.SERPER_API_KEY:
             raise ValueError("SERPER_API_KEY must be set in production (APP_ENV=production)")
+        if not self.CORS_ORIGINS:
+            raise ValueError("CORS_ORIGINS must not be empty in production")
+        if "*" in self.CORS_ORIGINS:
+            raise ValueError(
+                "CORS_ORIGINS must not contain wildcard '*' in production — "
+                "set it to the exact frontend origin, e.g. "
+                '\'["https://stillthere-frontend.onrender.com"]\''
+            )
         return self
 
     @property

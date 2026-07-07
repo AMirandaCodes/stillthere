@@ -64,6 +64,11 @@ async def list_verifications(
 async def get_verification(
     verification_id: UUID,
     db: DbSession,
+    # Intentionally unauthenticated: POST /verifications accepts OptionalUser
+    # (guests can submit), so the polling endpoint must also be accessible
+    # without auth. UUID v4 provides ~122 bits of entropy making enumeration
+    # infeasible. Frontend evidence links use rel="noreferrer" to prevent UUID
+    # leakage via Referer headers. (SEC-05 — Option B)
 ) -> VerificationResultResponse:
     service = VerificationService(db)
     result = await service.get_result(verification_id)

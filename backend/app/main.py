@@ -55,9 +55,11 @@ app = FastAPI(
         "Verify whether a business contact is likely still employed at a company "
         "using publicly available information sources."
     ),
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
+    # Disable interactive docs in production to avoid exposing the full API schema
+    # to unauthenticated visitors (SEC-06). Set APP_ENV=production on Render.
+    docs_url="/api/docs"        if not settings.is_production else None,
+    redoc_url="/api/redoc"      if not settings.is_production else None,
+    openapi_url="/api/openapi.json" if not settings.is_production else None,
     lifespan=lifespan,
 )
 
@@ -67,8 +69,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 app.state.limiter = limiter
@@ -88,6 +90,50 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(RequestIDMiddleware)
+
+
+class ContentSizeLimitMiddleware(BaseHTTPMiddleware):
+    """Reject JSON requests whose Content-Length exceeds 1 MB (SEC-04).
+
+    Multipart requests (CSV upload) are excluded here — BatchService enforces
+    a 5 MB streaming limit on those via its own chunked-read logic.
+    """
+    _MAX_JSON_BYTES = 1 * 1024 * 1024
+
+    async def dispatch(self, request: Request, call_next):
+        content_type = request.headers.get("content-type", "")
+        if "multipart/form-data" not in content_type:
+            content_length = request.headers.get("content-length")
+            if content_length and int(content_length) > self._MAX_JSON_BYTES:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "Request body too large."},
+                )
+        return await call_next(request)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add browser security headers to every response (SEC-01).
+
+    Placed as the outermost middleware so headers are injected on all
+    responses including 413/429/500 from inner middleware and handlers.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+        return response
+
+
+app.add_middleware(ContentSizeLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 # ── Global exception handlers ──────────────────────────────────────────────────

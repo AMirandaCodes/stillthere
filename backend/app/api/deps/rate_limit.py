@@ -9,10 +9,17 @@ from app.services.rate_limit_service import RateLimitService
 
 
 def _get_client_ip(request: Request) -> str:
-    """Extract client IP, honouring X-Forwarded-For from reverse proxies."""
+    """Extract client IP from the rightmost X-Forwarded-For entry.
+
+    On Render (and most single-hop reverse proxies), the load balancer
+    appends the real client IP as the LAST entry. Taking the first entry
+    would allow any client to spoof their IP by setting the header themselves
+    and bypass all IP-based rate limits (CWE-290).
+    """
     forwarded_for = request.headers.get("X-Forwarded-For")
     if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
+        ips = [ip.strip() for ip in forwarded_for.split(",")]
+        return ips[-1]  # rightmost entry is set by the trusted proxy
     if request.client:
         return request.client.host
     return "unknown"
