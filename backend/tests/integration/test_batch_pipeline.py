@@ -461,9 +461,13 @@ class TestBatchExportEndpoint:
         # the stale RUNNING value that was cached before the task ran.
         db_session.expire_all()
 
-        export_r = await client.get(
-            f"/api/v1/batch/{job_id}/export", headers=auth_headers
-        )
+        # export_csv_stream opens its own session (bypasses injected DB) so the
+        # export generator must also be pointed at the test DB, not the main DB.
+        export_factory = async_sessionmaker(test_engine, expire_on_commit=False)
+        with patch("app.services.csv_export.AsyncSessionLocal", export_factory):
+            export_r = await client.get(
+                f"/api/v1/batch/{job_id}/export", headers=auth_headers
+            )
         assert export_r.status_code == 200
         content = export_r.text
         assert "row_number" in content      # header row present

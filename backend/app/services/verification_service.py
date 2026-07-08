@@ -96,6 +96,7 @@ class VerificationService:
                 result.id,
                 celery_task_id=str(task.id),
             )
+            await self._session.commit()
             logger.info(
                 "Verification task dispatched",
                 result_id=str(result.id),
@@ -112,6 +113,7 @@ class VerificationService:
                 status=VerificationStatus.FAILED,
                 error_message="Failed to queue verification task. Check Celery worker logs.",
             )
+            await self._session.commit()
 
         return VerificationJobResponse(
             search_id=search.id,
