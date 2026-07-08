@@ -1,4 +1,4 @@
-const HEALTH_URL = "/api/v1/health";
+const HEALTH_URL = "https://stillthere-backend.onrender.com/api/v1/health";
 
 export default function WakeupHint() {
   return (
