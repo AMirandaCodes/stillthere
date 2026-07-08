@@ -202,7 +202,7 @@ class LLMService:
             raise
         except Exception as exc:
             logger.error("LLM API call failed", error=str(exc))
-            raise
+            return LLMAnalysisResult(raw_response=f"API error: {str(exc)}")
 
         return self._parse_response(message.content[0].text)
 
