@@ -240,10 +240,6 @@ class TestRunVerificationAsync:
     ):
         from uuid import UUID
         vid = await self._create_pending_result(client, auth_headers)
-        # Prime S1's DB connection: keeps an uncommitted transaction on C1 so
-        # L_func's selector has an active FD when _run_verification_async opens C2.
-        # Without this, selector.select() blocks indefinitely (no FDs to watch).
-        _ = await db_session.get(VerificationResult, UUID(vid))
 
         with respx.mock() as router:
             router.post(SERPER_ENDPOINT).mock(
@@ -254,8 +250,9 @@ class TestRunVerificationAsync:
                                             headers={"content-type": "text/html"})
             )
             with patch("anthropic.AsyncAnthropic", return_value=_mock_llm_client()):
-                with self._session_factory_patch(test_engine):
-                    await _run_verification_async(vid)
+                with patch("app.tasks.pipeline.aioredis.from_url", side_effect=Exception):
+                    with self._session_factory_patch(test_engine):
+                        await _run_verification_async(vid)
 
         db_session.expire_all()
         result = await db_session.get(VerificationResult, UUID(vid))
@@ -267,7 +264,6 @@ class TestRunVerificationAsync:
     ):
         from uuid import UUID
         vid = await self._create_pending_result(client, auth_headers)
-        _ = await db_session.get(VerificationResult, UUID(vid))  # prime S1 — see above
 
         with respx.mock() as router:
             router.post(SERPER_ENDPOINT).mock(
@@ -278,8 +274,9 @@ class TestRunVerificationAsync:
                                             headers={"content-type": "text/html"})
             )
             with patch("anthropic.AsyncAnthropic", return_value=_mock_llm_client()):
-                with self._session_factory_patch(test_engine):
-                    await _run_verification_async(vid)
+                with patch("app.tasks.pipeline.aioredis.from_url", side_effect=Exception):
+                    with self._session_factory_patch(test_engine):
+                        await _run_verification_async(vid)
 
         db_session.expire_all()
         stmt = (
@@ -296,15 +293,15 @@ class TestRunVerificationAsync:
     ):
         from uuid import UUID
         vid = await self._create_pending_result(client, auth_headers)
-        _ = await db_session.get(VerificationResult, UUID(vid))  # prime S1 — see above
 
         with respx.mock() as router:
             router.post(SERPER_ENDPOINT).mock(
                 return_value=httpx.Response(401, json={"message": "Unauthorized"})
             )
             with patch("anthropic.AsyncAnthropic", return_value=_mock_llm_client()):
-                with self._session_factory_patch(test_engine):
-                    await _run_verification_async(vid)
+                with patch("app.tasks.pipeline.aioredis.from_url", side_effect=Exception):
+                    with self._session_factory_patch(test_engine):
+                        await _run_verification_async(vid)
 
         db_session.expire_all()
         result = await db_session.get(VerificationResult, UUID(vid))
@@ -318,7 +315,6 @@ class TestRunVerificationAsync:
         """Running _run_verification_async on a COMPLETE result must be a no-op."""
         from uuid import UUID
         vid = await self._create_pending_result(client, auth_headers)
-        _ = await db_session.get(VerificationResult, UUID(vid))  # prime S1 — see above
 
         # First run: complete it
         with respx.mock() as router:
@@ -330,8 +326,9 @@ class TestRunVerificationAsync:
                                             headers={"content-type": "text/html"})
             )
             with patch("anthropic.AsyncAnthropic", return_value=_mock_llm_client()):
-                with self._session_factory_patch(test_engine):
-                    await _run_verification_async(vid)
+                with patch("app.tasks.pipeline.aioredis.from_url", side_effect=Exception):
+                    with self._session_factory_patch(test_engine):
+                        await _run_verification_async(vid)
 
         # Second run: Serper must NOT be called again (assert_all_called=False because
         # the route is intentionally never hit; idempotency is verified by call_count)
