@@ -172,16 +172,20 @@ The total maps to a confidence level: **High** (≥70), **Medium** (40–69), **
 ## Screenshots
 
 **Login**
-> *[Screenshot — Centred card with "StillThere" heading, email and password fields, a "Sign in" button, and a "Create account" link below. Clean light background.]*
+
+![Login page](screenshots/Login.png)
 
 **Single Verification — Submit**
-> *[Screenshot — Home page with a three-field form: Full Name (required), Company (required), Work Email (optional). A blue "Run Verification" primary button submits the request.]*
+
+![Single verification submit form](screenshots/Single%20Verification%20-%20Submit.png)
 
 **Verification Result**
-> *[Screenshot — Result page with a header card showing name, company, and submission date. Below: five tri-state badge rows labelled Person Found Online, Appears Associated With Company, Found on Company Website, Company Active / Still Trading, Email Match — each showing a green "Yes", red "No", or grey "Unclear" pill. A confidence bar displays the score (e.g. 74 / 100 — High) with colour coding. An evidence sources table lists each URL with its title, source type, collection date, and Claude's reasoning for the signal it supports.]*
+
+![Verification result page](screenshots/Verification%20Result.png)
 
 **Batch Jobs Dashboard**
-> *[Screenshot — Jobs page listing upload cards. Each card shows the CSV filename, a coloured status badge (Queued / Running / Complete / Failed), a labelled progress bar (e.g. "14 / 20 rows — 70%"), and three count chips (ok / failed / unclear). An "Export CSV" button becomes active when the job status reaches Complete.]*
+
+![Batch jobs dashboard](screenshots/Batch%20Jobs%20Dashboard.png)
 
 ---
 
